@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import multer from 'multer';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { exec } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 
@@ -163,6 +164,110 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     await logEvent('success', `User "${username}" logged in successfully`);
     res.json({ token, username: user.username });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password, licenseKey } = req.body;
+  if (!username || !password || !licenseKey) {
+    return res.status(400).json({ error: 'Username, password, and license key are required' });
+  }
+
+  try {
+    const db = await getDb();
+    
+    // Check if license key is valid and unused
+    const keyRecord = await db.get('SELECT * FROM license_keys WHERE key = ?', [licenseKey]);
+    if (!keyRecord) {
+      return res.status(400).json({ error: 'Invalid license key. Please check and try again.' });
+    }
+    if (keyRecord.usedBy) {
+      return res.status(400).json({ error: `License key has already been used by user "${keyRecord.usedBy}"` });
+    }
+
+    const existingUser = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username is already taken' });
+    }
+
+    const hashedPassword = hashPassword(password);
+    const result = await db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
+    const userId = result.lastID;
+
+    // Mark key as used
+    await db.run('UPDATE license_keys SET usedBy = ? WHERE id = ?', [username, keyRecord.id]);
+
+    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
+    await logEvent('success', `User "${username}" registered and logged in successfully using key "${licenseKey}"`);
+    res.status(201).json({ token, username });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin User Directory and License Keys APIs
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    const db = await getDb();
+    const users = await db.all('SELECT id, username FROM users ORDER BY id ASC');
+    res.json(users);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
+  const { id } = req.params;
+  try {
+    const db = await getDb();
+    const userToDelete = await db.get('SELECT * FROM users WHERE id = ?', [id]);
+    if (!userToDelete) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (userToDelete.username === 'admin') {
+      return res.status(400).json({ error: 'The primary system admin account cannot be deleted' });
+    }
+
+    if (userToDelete.id === req.user.id) {
+      return res.status(400).json({ error: 'You cannot delete your own currently logged-in account' });
+    }
+
+    await db.run('DELETE FROM users WHERE id = ?', [id]);
+    await logEvent('warn', `Deleted operator account: "${userToDelete.username}"`);
+    res.json({ message: `User "${userToDelete.username}" deleted successfully` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/license-keys', authenticateToken, async (req, res) => {
+  try {
+    const db = await getDb();
+    const keys = await db.all('SELECT * FROM license_keys ORDER BY id DESC');
+    res.json(keys);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/license-keys/generate', authenticateToken, async (req, res) => {
+  try {
+    const db = await getDb();
+    // Generate a random-like pattern key
+    const prefix = 'STREAM';
+    const randomHex = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const year = new Date().getFullYear();
+    const newKey = `${prefix}-${randomHex}-${year}`;
+
+    const now = new Date().toISOString();
+    await db.run('INSERT INTO license_keys (key, usedBy, createdAt) VALUES (?, ?, ?)', [newKey, null, now]);
+    await logEvent('info', `Generated new license key: "${newKey}"`);
+    
+    const keys = await db.all('SELECT * FROM license_keys ORDER BY id DESC');
+    res.status(201).json(keys);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

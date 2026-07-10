@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Sliders, Type, Image, Save, Lock, Trash2, Upload, AlertCircle, CheckCircle } from 'lucide-react';
-import { StreamSettings } from '../types';
+import { Settings, Shield, Sliders, Type, Image, Save, Lock, Trash2, Upload, AlertCircle, CheckCircle, Users, KeyRound, Plus } from 'lucide-react';
+import { StreamSettings, AdminUser, LicenseKey } from '../types';
 import { safeFetchJson } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -18,6 +18,15 @@ export default function SettingsManager({ token }: SettingsProps) {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [logoUploading, setLogoUploading] = useState(false);
+
+  // User and License Management states
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [licenseKeys, setLicenseKeys] = useState<LicenseKey[]>([]);
+  const [userDeleteLoading, setUserDeleteLoading] = useState<number | null>(null);
+  const [keyGenerateLoading, setKeyGenerateLoading] = useState(false);
+  const [userManagementError, setUserManagementError] = useState('');
+  const [userManagementSuccess, setUserManagementSuccess] = useState('');
+  const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState<AdminUser | null>(null);
 
   // Form states - Settings
   const [loopPlaylist, setLoopPlaylist] = useState(true);
@@ -37,6 +46,23 @@ export default function SettingsManager({ token }: SettingsProps) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showDeleteLogoConfirm, setShowDeleteLogoConfirm] = useState(false);
+
+  const fetchUsersAndKeys = async () => {
+    try {
+      const [usersRes, keysRes] = await Promise.all([
+        safeFetchJson<AdminUser[]>('/api/users', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson<LicenseKey[]>('/api/license-keys', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (usersRes.ok && usersRes.data) {
+        setUsers(usersRes.data);
+      }
+      if (keysRes.ok && keysRes.data) {
+        setLicenseKeys(keysRes.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch users or license keys:', err);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -68,6 +94,7 @@ export default function SettingsManager({ token }: SettingsProps) {
 
   useEffect(() => {
     fetchSettings();
+    fetchUsersAndKeys();
   }, [token]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -189,6 +216,62 @@ export default function SettingsManager({ token }: SettingsProps) {
       setConfirmPassword('');
     } catch (err: any) {
       setPasswordError(err.message || 'Error updating password');
+    }
+  };
+
+  const handleDeleteUser = async (user: AdminUser) => {
+    setShowDeleteUserConfirm(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!showDeleteUserConfirm) return;
+    const userId = showDeleteUserConfirm.id;
+    const usernameToDelete = showDeleteUserConfirm.username;
+    setShowDeleteUserConfirm(null);
+    setUserDeleteLoading(userId);
+    setUserManagementError('');
+    setUserManagementSuccess('');
+
+    try {
+      const { error: fetchErr } = await safeFetchJson(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (fetchErr) {
+        setUserManagementError(fetchErr);
+      } else {
+        setUserManagementSuccess(`Successfully deleted operator account "${usernameToDelete}"`);
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      }
+    } catch (err) {
+      setUserManagementError('Failed to delete user');
+    } finally {
+      setUserDeleteLoading(null);
+    }
+  };
+
+  const handleGenerateLicenseKey = async () => {
+    setKeyGenerateLoading(true);
+    setUserManagementError('');
+    setUserManagementSuccess('');
+
+    try {
+      const { data, error: fetchErr } = await safeFetchJson<LicenseKey[]>('/api/license-keys/generate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (fetchErr || !data) {
+        setUserManagementError(fetchErr || 'Failed to generate license key');
+      } else {
+        setUserManagementSuccess('Successfully generated a new registration license key!');
+        setLicenseKeys(data);
+      }
+    } catch (err) {
+      setUserManagementError('Failed to generate license key');
+    } finally {
+      setKeyGenerateLoading(false);
     }
   };
 
@@ -568,6 +651,148 @@ export default function SettingsManager({ token }: SettingsProps) {
         </div>
       </div>
 
+      {/* Admin User Management & Access Permission License Keys */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Users className="w-5 h-5 text-red-500" />
+              Operator Accounts & System Licensing
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              View authorized administrator accounts and generate license keys to permit new registrations.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateLicenseKey}
+            disabled={keyGenerateLoading}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800/50 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer shadow-lg shadow-red-950/15"
+          >
+            {keyGenerateLoading ? (
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
+            Generate Registration License Key
+          </button>
+        </div>
+
+        {userManagementError && (
+          <div className="mb-6 p-4 bg-red-950/40 border border-red-900/50 rounded-xl text-sm text-red-300 flex items-center gap-2 animate-pulse">
+            <AlertCircle className="w-4 h-4 text-red-450" />
+            {userManagementError}
+          </div>
+        )}
+
+        {userManagementSuccess && (
+          <div className="mb-6 p-4 bg-emerald-950/40 border border-emerald-900/50 rounded-xl text-sm text-emerald-300 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-450" />
+            {userManagementSuccess}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Registered Users List */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-red-500" />
+              Authorized Operators ({users.length})
+            </h3>
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/50">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    <th className="px-4 py-3">ID</th>
+                    <th className="px-4 py-3">Username</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-white">
+                  {users.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-900/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{u.id}</td>
+                      <td className="px-4 py-3 font-semibold">{u.username}</td>
+                      <td className="px-4 py-3 text-right">
+                        {u.username === 'admin' ? (
+                          <span className="text-[10px] bg-red-950/45 text-red-400 border border-red-900/30 px-2.5 py-1 rounded-full font-semibold">
+                            Primary Admin
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(u)}
+                            disabled={userDeleteLoading === u.id}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 border border-slate-800/80 hover:border-rose-950 hover:bg-rose-950/10 rounded-lg transition-colors cursor-pointer"
+                            title="Revoke Permission"
+                          >
+                            {userDeleteLoading === u.id ? (
+                              <span className="inline-block w-3.5 h-3.5 border-2 border-slate-400 border-t-rose-500 rounded-full animate-spin"></span>
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Registration License Keys List */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <KeyRound className="w-4 h-4 text-red-500" />
+              Registration Permission Keys ({licenseKeys.length})
+            </h3>
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/50 max-h-[300px] overflow-y-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950 text-xs font-semibold text-slate-400 uppercase tracking-wider sticky top-0">
+                    <th className="px-4 py-3">License Key</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-white">
+                  {licenseKeys.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-slate-500 text-xs">
+                        No license keys generated yet. Click generate key above.
+                      </td>
+                    </tr>
+                  ) : (
+                    licenseKeys.map((k) => (
+                      <tr key={k.id} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs font-bold text-red-400 tracking-wider">
+                          {k.key}
+                        </td>
+                        <td className="px-4 py-3">
+                          {k.usedBy ? (
+                            <span className="text-[10px] bg-slate-900 text-slate-500 border border-slate-800 px-2 py-0.5 rounded-full font-medium">
+                              Used by: <strong className="text-slate-300 font-semibold">{k.usedBy}</strong>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-emerald-950/40 text-emerald-400 border border-emerald-900/35 px-2 py-0.5 rounded-full font-semibold">
+                              Available / Active
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          {new Date(k.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <ConfirmationModal
         isOpen={showDeleteLogoConfirm}
         title="Remove Logo Overlay"
@@ -576,6 +801,16 @@ export default function SettingsManager({ token }: SettingsProps) {
         isDestructive={true}
         onConfirm={confirmDeleteLogo}
         onCancel={() => setShowDeleteLogoConfirm(false)}
+      />
+
+      <ConfirmationModal
+        isOpen={showDeleteUserConfirm !== null}
+        title="Revoke Admin Permission"
+        message={`Are you sure you want to completely delete the admin/operator account "${showDeleteUserConfirm?.username}"? They will lose access to StreamManager instantly.`}
+        confirmText="Delete Operator"
+        isDestructive={true}
+        onConfirm={confirmDeleteUser}
+        onCancel={() => setShowDeleteUserConfirm(null)}
       />
     </div>
   );

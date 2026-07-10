@@ -65,4 +65,18 @@ export interface SystemStats {
   activeVideo: string | null;
   activeVideoDuration: number | null;
   activeVideoElapsed: number | null;
+  connectedOutputs?: number[];
 }
+
+export interface AdminUser {
+  id: number;
+  username: string;
+}
+
+export interface LicenseKey {
+  id: number;
+  key: string;
+  usedBy: string | null;
+  createdAt: string;
+}
+

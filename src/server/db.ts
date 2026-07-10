@@ -84,6 +84,13 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
       type TEXT NOT NULL,
       message TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS license_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT UNIQUE NOT NULL,
+      usedBy TEXT DEFAULT NULL,
+      createdAt TEXT NOT NULL
+    );
   `);
 
   // Run migrations to ensure columns exist in existing DB instances
@@ -96,6 +103,15 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
     await dbInstance.run(`ALTER TABLE settings ADD COLUMN scaleMode TEXT DEFAULT 'fit'`);
   } catch (err) {
     // Ignore error if column already exists
+  }
+
+  // Seed default license key if not exists
+  const keyExists = await dbInstance.get('SELECT * FROM license_keys LIMIT 1');
+  if (!keyExists) {
+    const now = new Date().toISOString();
+    await dbInstance.run('INSERT INTO license_keys (key, usedBy, createdAt) VALUES (?, ?, ?)', ['STREAM-2026-LIVE', null, now]);
+    await dbInstance.run('INSERT INTO license_keys (key, usedBy, createdAt) VALUES (?, ?, ?)', ['ADMIN-ACCESS-2026', null, now]);
+    console.log('Seeded default license keys: STREAM-2026-LIVE, ADMIN-ACCESS-2026');
   }
 
   // Seed default admin user if not exists
