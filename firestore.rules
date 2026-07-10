@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidStreamSettings(data) {
+      return data.keys().hasAll(['loopPlaylist', 'logoPosition', 'textPosition', 'textColor', 'textSize', 'resolution', 'videoBitrate', 'audioBitrate', 'aspectRatio', 'scaleMode'])
+        && (data.loopPlaylist is int || data.loopPlaylist is bool)
+        && data.logoPosition is string && data.logoPosition.size() <= 50
+        && data.textPosition is string && data.textPosition.size() <= 50
+        && data.textColor is string && data.textColor.size() <= 10
+        && data.textSize is int
+        && data.resolution is string && data.resolution.size() <= 20
+        && data.videoBitrate is string && data.videoBitrate.size() <= 20
+        && data.audioBitrate is string && data.audioBitrate.size() <= 20
+        && data.aspectRatio is string && data.aspectRatio.size() <= 10
+        && data.scaleMode is string && data.scaleMode.size() <= 20;
+    }
+
+    function isValidStreamKey(data) {
+      return data.keys().hasAll(['platform', 'name', 'rtmpUrl', 'streamKey'])
+        && data.platform is string && data.platform.size() <= 50
+        && data.name is string && data.name.size() <= 100
+        && data.rtmpUrl is string && data.rtmpUrl.size() <= 500
+        && data.streamKey is string && data.streamKey.size() <= 500;
+    }
+
+    function isValidSchedule(data) {
+      return data.keys().hasAll(['videoId', 'videoTitle', 'streamKeyId', 'streamKeyName', 'scheduledTime'])
+        && data.videoId is int
+        && data.videoTitle is string && data.videoTitle.size() <= 250
+        && data.streamKeyId is int
+        && data.streamKeyName is string && data.streamKeyName.size() <= 100
+        && data.scheduledTime is string && data.scheduledTime.size() <= 100;
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasAll(['timestamp', 'type', 'message'])
+        && data.timestamp is string && data.timestamp.size() <= 100
+        && data.type is string && data.type.size() <= 20
+        && data.message is string && data.message.size() <= 2000;
+    }
+
+    // Collection matching
+    match /settings/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow write: if isSignedIn() && isValidId(docId) && isValidStreamSettings(incoming());
+    }
+
+    match /stream_keys/{keyId} {
+      allow read: if isSignedIn() && isValidId(keyId);
+      allow create, update: if isSignedIn() && isValidId(keyId) && isValidStreamKey(incoming());
+      allow delete: if isSignedIn() && isValidId(keyId);
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isSignedIn() && isValidId(scheduleId);
+      allow create, update: if isSignedIn() && isValidId(scheduleId) && isValidSchedule(incoming());
+      allow delete: if isSignedIn() && isValidId(scheduleId);
+    }
+
+    match /logs/{logId} {
+      allow read: if isSignedIn() && isValidId(logId);
+      allow create: if isSignedIn() && isValidId(logId) && isValidLog(incoming());
+      allow update, delete: if false; // Logs are write-once, never update/delete
+    }
+  }
+}

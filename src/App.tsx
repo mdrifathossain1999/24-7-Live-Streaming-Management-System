@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { LayoutDashboard, Film, Key, Calendar, Settings, LogOut, Radio } from 'lucide-react';
+import { LayoutDashboard, Film, Key, Calendar, Settings, LogOut, Radio, Cloud } from 'lucide-react';
 
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -8,8 +8,9 @@ import PlaylistManager from './components/PlaylistManager';
 import StreamKeysManager from './components/StreamKeysManager';
 import ScheduleManager from './components/ScheduleManager';
 import SettingsManager from './components/SettingsManager';
+import CloudSyncManager from './components/CloudSyncManager';
 
-type Tab = 'dashboard' | 'playlist' | 'destinations' | 'schedule' | 'settings';
+type Tab = 'dashboard' | 'playlist' | 'destinations' | 'schedule' | 'settings' | 'cloud';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('streaming_token'));
@@ -46,6 +47,8 @@ export default function App() {
         return <ScheduleManager token={token} />;
       case 'settings':
         return <SettingsManager token={token} />;
+      case 'cloud':
+        return <CloudSyncManager token={token} />;
       default:
         return <Dashboard token={token} />;
     }
@@ -56,8 +59,10 @@ export default function App() {
     { id: 'playlist', label: 'Video Playlist', icon: Film },
     { id: 'destinations', label: 'Stream Targets', icon: Key },
     { id: 'schedule', label: 'Stream Schedule', icon: Calendar },
+    { id: 'cloud', label: 'Cloud Sync & Backup', icon: Cloud },
     { id: 'settings', label: 'Profile Settings', icon: Settings },
   ] as const;
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans">

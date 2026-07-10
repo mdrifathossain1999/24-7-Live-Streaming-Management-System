@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "StreamSettings": {
+      "title": "StreamSettings",
+      "description": "Global audio/video streaming parameters and visual watermarks",
+      "type": "object",
+      "properties": {
+        "loopPlaylist": { "type": "integer" },
+        "logoPath": { "type": "string" },
+        "logoPosition": { "type": "string" },
+        "textOverlay": { "type": "string" },
+        "textPosition": { "type": "string" },
+        "textColor": { "type": "string" },
+        "textSize": { "type": "integer" },
+        "resolution": { "type": "string" },
+        "videoBitrate": { "type": "string" },
+        "audioBitrate": { "type": "string" },
+        "aspectRatio": { "type": "string" },
+        "scaleMode": { "type": "string" }
+      }
+    },
+    "StreamKey": {
+      "title": "StreamKey",
+      "description": "Streaming destinations RTMP endpoints and secrets",
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string" },
+        "name": { "type": "string" },
+        "rtmpUrl": { "type": "string" },
+        "streamKey": { "type": "string" },
+        "enabled": { "type": "integer" }
+      },
+      "required": ["platform", "name", "rtmpUrl", "streamKey"]
+    },
+    "Schedule": {
+      "title": "Schedule",
+      "description": "Schedules for playing list items at specific times",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "integer" },
+        "videoTitle": { "type": "string" },
+        "streamKeyId": { "type": "integer" },
+        "streamKeyName": { "type": "string" },
+        "scheduledTime": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["videoId", "videoTitle", "streamKeyId", "streamKeyName", "scheduledTime"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Live streaming controller events logs",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string" },
+        "type": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["timestamp", "type", "message"]
+    }
+  },
+  "firestore": {
+    "/settings/global": {
+      "schema": "StreamSettings",
+      "description": "Single record representing active encoder config"
+    },
+    "/stream_keys/{keyId}": {
+      "schema": "StreamKey",
+      "description": "Collection of RTMP ingestion configuration records"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "Schedule",
+      "description": "Calendar schedules of automated stream actions"
+    },
+    "/logs/{logId}": {
+      "schema": "Log",
+      "description": "Live status telemetry system event log history"
+    }
+  }
+}
