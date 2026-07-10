@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Film, Trash2, ArrowUp, ArrowDown, Info, Play, FileVideo } from 'lucide-react';
 import { VideoFile } from '../types';
+import { safeFetchJson } from '../utils';
 
 interface PlaylistProps {
   token: string;
@@ -16,11 +17,10 @@ export default function PlaylistManager({ token }: PlaylistProps) {
 
   const fetchPlaylist = async () => {
     try {
-      const res = await fetch('/api/playlist', {
+      const { data, ok } = await safeFetchJson<VideoFile[]>('/api/playlist', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (ok && data) {
         setPlaylist(data);
       }
     } catch (err) {
@@ -76,7 +76,7 @@ export default function PlaylistManager({ token }: PlaylistProps) {
     formData.append('video', file);
 
     try {
-      const response = await fetch('/api/playlist/upload', {
+      const { data, error: fetchErr } = await safeFetchJson('/api/playlist/upload', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`
@@ -84,9 +84,8 @@ export default function PlaylistManager({ token }: PlaylistProps) {
         body: formData
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to upload video file');
+      if (fetchErr) {
+        throw new Error(fetchErr);
       }
 
       setSuccess(`Uploaded successfully: "${file.name}"`);
@@ -104,17 +103,16 @@ export default function PlaylistManager({ token }: PlaylistProps) {
     }
 
     try {
-      const res = await fetch(`/api/playlist/${id}`, {
+      const { error: fetchErr } = await safeFetchJson(`/api/playlist/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (res.ok) {
+      if (!fetchErr) {
         setSuccess('Video deleted from playlist');
         await fetchPlaylist();
       } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to delete video');
+        setError(fetchErr || 'Failed to delete video');
       }
     } catch (err) {
       setError('Network error deleting video');
@@ -136,7 +134,7 @@ export default function PlaylistManager({ token }: PlaylistProps) {
     const orderedIds = updated.map(v => v.id);
 
     try {
-      const res = await fetch('/api/playlist/reorder', {
+      const { error: fetchErr } = await safeFetchJson('/api/playlist/reorder', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -145,11 +143,10 @@ export default function PlaylistManager({ token }: PlaylistProps) {
         body: JSON.stringify({ orderedIds })
       });
 
-      if (res.ok) {
+      if (!fetchErr) {
         setPlaylist(updated);
       } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to save reordered playlist');
+        setError(fetchErr || 'Failed to save reordered playlist');
       }
     } catch (err) {
       setError('Network error updating playlist order');

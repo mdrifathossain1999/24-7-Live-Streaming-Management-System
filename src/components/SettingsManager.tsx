@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Shield, Sliders, Type, Image, Save, Lock, Trash2, Upload, AlertCircle, CheckCircle } from 'lucide-react';
 import { StreamSettings } from '../types';
+import { safeFetchJson } from '../utils';
 
 interface SettingsProps {
   token: string;
@@ -35,11 +36,10 @@ export default function SettingsManager({ token }: SettingsProps) {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/settings', {
+      const { data, ok } = await safeFetchJson<StreamSettings>('/api/settings', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (ok && data) {
         setSettings(data);
         
         // Initialize form fields
@@ -70,7 +70,7 @@ export default function SettingsManager({ token }: SettingsProps) {
     setSuccess('');
 
     try {
-      const res = await fetch('/api/settings', {
+      const { data, error: fetchErr } = await safeFetchJson<StreamSettings>('/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,8 +89,7 @@ export default function SettingsManager({ token }: SettingsProps) {
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      if (fetchErr || !data) throw new Error(fetchErr || 'Failed to save settings');
 
       setSuccess('Streaming profile updated successfully');
       setSettings(data);
@@ -111,14 +110,13 @@ export default function SettingsManager({ token }: SettingsProps) {
     formData.append('logo', file);
 
     try {
-      const res = await fetch('/api/settings/logo', {
+      const { data, error: fetchErr } = await safeFetchJson<{ logoPath: string }>('/api/settings/logo', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to upload logo overlay');
+      if (fetchErr || !data) throw new Error(fetchErr || 'Failed to upload logo overlay');
 
       setSuccess('Overlay logo uploaded successfully');
       setSettings(prev => prev ? { ...prev, logoPath: data.logoPath } : null);
@@ -135,14 +133,16 @@ export default function SettingsManager({ token }: SettingsProps) {
     setSuccess('');
 
     try {
-      const res = await fetch('/api/settings/logo', {
+      const { error: fetchErr } = await safeFetchJson('/api/settings/logo', {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (res.ok) {
+      if (!fetchErr) {
         setSuccess('Overlay logo removed');
         setSettings(prev => prev ? { ...prev, logoPath: null } : null);
+      } else {
+        setError(fetchErr || 'Failed to delete logo overlay');
       }
     } catch (err) {
       setError('Failed to delete logo overlay');
@@ -160,7 +160,7 @@ export default function SettingsManager({ token }: SettingsProps) {
     }
 
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const { error: fetchErr } = await safeFetchJson('/api/auth/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -169,8 +169,7 @@ export default function SettingsManager({ token }: SettingsProps) {
         body: JSON.stringify({ oldPassword, newPassword })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Password update failed');
+      if (fetchErr) throw new Error(fetchErr || 'Password update failed');
 
       setPasswordSuccess('Password changed successfully');
       setOldPassword('');

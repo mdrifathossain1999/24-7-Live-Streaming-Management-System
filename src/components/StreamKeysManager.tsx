@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Plus, Trash2, Edit3, Eye, EyeOff, Save, CheckCircle2, Globe, Radio } from 'lucide-react';
 import { StreamKey } from '../types';
+import { safeFetchJson } from '../utils';
 
 interface StreamKeysProps {
   token: string;
@@ -31,11 +32,10 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
 
   const fetchKeys = async () => {
     try {
-      const res = await fetch('/api/stream-keys', {
+      const { data, ok } = await safeFetchJson<StreamKey[]>('/api/stream-keys', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (ok && data) {
         setKeys(data);
       }
     } catch (err) {
@@ -78,7 +78,7 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
     const endpoint = editingId ? `/api/stream-keys/${editingId}` : '/api/stream-keys';
 
     try {
-      const res = await fetch(endpoint, {
+      const { data, error: fetchErr } = await safeFetchJson(endpoint, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -87,9 +87,8 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to save stream key');
+      if (fetchErr) {
+        throw new Error(fetchErr || 'Failed to save stream key');
       }
 
       setSuccess(editingId ? 'Stream key updated successfully' : 'New stream destination added');
@@ -116,17 +115,16 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
     }
 
     try {
-      const res = await fetch(`/api/stream-keys/${id}`, {
+      const { error: fetchErr } = await safeFetchJson(`/api/stream-keys/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (res.ok) {
+      if (!fetchErr) {
         setSuccess('Stream key removed');
         await fetchKeys();
       } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to delete stream key');
+        setError(fetchErr || 'Failed to delete stream key');
       }
     } catch (err) {
       setError('Network error deleting stream key');
@@ -136,7 +134,7 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
   const handleToggleEnable = async (key: StreamKey) => {
     const nextEnabled = key.enabled === 1 ? 0 : 1;
     try {
-      const res = await fetch(`/api/stream-keys/${key.id}`, {
+      const { ok } = await safeFetchJson(`/api/stream-keys/${key.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -145,7 +143,7 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
         body: JSON.stringify({ ...key, enabled: nextEnabled })
       });
 
-      if (res.ok) {
+      if (ok) {
         await fetchKeys();
       }
     } catch (err) {

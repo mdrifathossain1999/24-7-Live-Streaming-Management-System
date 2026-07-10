@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, Clock, CheckCircle2, AlertTriangle, PlayCircle, Loader } from 'lucide-react';
 import { Schedule, VideoFile, StreamKey } from '../types';
+import { safeFetchJson } from '../utils';
 
 interface ScheduleProps {
   token: string;
@@ -22,23 +23,19 @@ export default function ScheduleManager({ token }: ScheduleProps) {
 
   const fetchData = async () => {
     try {
-      const [schedRes, videosRes, keysRes] = await Promise.all([
-        fetch('/api/schedules', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/playlist', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/stream-keys', { headers: { Authorization: `Bearer ${token}` } }),
+      const [schedResult, videosResult, keysResult] = await Promise.all([
+        safeFetchJson<Schedule[]>('/api/schedules', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson<VideoFile[]>('/api/playlist', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson<StreamKey[]>('/api/stream-keys', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
-      if (schedRes.ok && videosRes.ok && keysRes.ok) {
-        const schedData = await schedRes.json();
-        const videosData = await videosRes.json();
-        const keysData = await keysRes.json();
+      if (schedResult.ok && videosResult.ok && keysResult.ok && schedResult.data && videosResult.data && keysResult.data) {
+        setSchedules(schedResult.data);
+        setVideos(videosResult.data);
+        setKeys(keysResult.data);
 
-        setSchedules(schedData);
-        setVideos(videosData);
-        setKeys(keysData);
-
-        if (videosData.length > 0) setSelectedVideo(videosData[0].id.toString());
-        if (keysData.length > 0) setSelectedKey(keysData[0].id.toString());
+        if (videosResult.data.length > 0) setSelectedVideo(videosResult.data[0].id.toString());
+        if (keysResult.data.length > 0) setSelectedKey(keysResult.data[0].id.toString());
       }
     } catch (err) {
       console.error(err);
@@ -62,7 +59,7 @@ export default function ScheduleManager({ token }: ScheduleProps) {
     setSuccess('');
 
     try {
-      const res = await fetch('/api/schedules', {
+      const { data, error: fetchErr } = await safeFetchJson('/api/schedules', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,9 +72,8 @@ export default function ScheduleManager({ token }: ScheduleProps) {
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create schedule');
+      if (fetchErr) {
+        throw new Error(fetchErr || 'Failed to create schedule');
       }
 
       setSuccess('Scheduled broadcast registered successfully');
@@ -94,17 +90,16 @@ export default function ScheduleManager({ token }: ScheduleProps) {
     }
 
     try {
-      const res = await fetch(`/api/schedules/${id}`, {
+      const { error: fetchErr } = await safeFetchJson(`/api/schedules/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (res.ok) {
+      if (!fetchErr) {
         setSuccess('Schedule cancelled successfully');
         await fetchData();
       } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to cancel schedule');
+        setError(fetchErr || 'Failed to cancel schedule');
       }
     } catch (err) {
       setError('Network error cancelling schedule');

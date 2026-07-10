@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Square, Activity, Cpu, HardDrive, RefreshCw, Layers, Terminal, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { SystemStats, StreamLog } from '../types';
+import { safeFetchJson } from '../utils';
 
 interface DashboardProps {
   token: string;
@@ -16,16 +17,16 @@ export default function Dashboard({ token }: DashboardProps) {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, logsRes] = await Promise.all([
-          fetch('/api/stats', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/logs', { headers: { Authorization: `Bearer ${token}` } }),
+        const [statsResult, logsResult] = await Promise.all([
+          safeFetchJson<SystemStats>('/api/stats', { headers: { Authorization: `Bearer ${token}` } }),
+          safeFetchJson<StreamLog[]>('/api/logs', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
-        if (statsRes.ok && logsRes.ok) {
-          const statsData = await statsRes.json();
-          const logsData = await logsRes.json();
-          setStats(statsData);
-          setLogs(logsData);
+        if (statsResult.ok && statsResult.data) {
+          setStats(statsResult.data);
+        }
+        if (logsResult.ok && logsResult.data) {
+          setLogs(logsResult.data);
         }
       } catch (err) {
         console.error('Failed to poll dashboard data:', err);
@@ -42,13 +43,12 @@ export default function Dashboard({ token }: DashboardProps) {
   const handleStart = async () => {
     setActionLoading(true);
     try {
-      const res = await fetch('/api/stream/start', {
+      const { data, error: fetchErr } = await safeFetchJson('/api/stream/start', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to start streaming');
+      if (fetchErr) {
+        alert(fetchErr || 'Failed to start streaming');
       }
       setRefreshKey((prev) => prev + 1);
     } catch (err) {
@@ -64,7 +64,7 @@ export default function Dashboard({ token }: DashboardProps) {
     }
     setActionLoading(true);
     try {
-      const res = await fetch('/api/stream/stop', {
+      await safeFetchJson('/api/stream/stop', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

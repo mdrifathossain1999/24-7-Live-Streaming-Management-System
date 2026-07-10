@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, User, Radio, AlertCircle } from 'lucide-react';
+import { safeFetchJson } from '../utils';
 
 interface LoginProps {
   onLoginSuccess: (token: string, username: string) => void;
@@ -22,16 +23,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const { data, error: fetchErr } = await safeFetchJson<{ token: string; username: string }>('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Invalid credentials');
+      if (fetchErr || !data) {
+        throw new Error(fetchErr || 'Invalid credentials');
       }
 
       onLoginSuccess(data.token, data.username);
