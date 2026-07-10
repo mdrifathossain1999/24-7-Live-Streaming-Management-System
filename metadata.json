@@ -1,0 +1,6 @@
+{
+  "name": "24/7 Live Streaming Management System",
+  "description": "Production-ready system to manage and automate 24/7 loops to Facebook and YouTube. Supports overlay logos/texts, multiple stream keys, scheduling, video playlists, and automated FFmpeg reconnects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,57 @@
+name: Production 24/7 Streamer Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: SSH Deploy to VPS Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            echo "Starting live streaming system production deployment..."
+            
+            # Navigate to directory (Replace with your actual path)
+            cd /var/www/streaming-system || exit 1
+            
+            # Pull latest commits
+            git pull origin main
+            
+            # Install Node production dependencies
+            npm install --omit=dev
+            npm install tsx esbuild # ensure runner compilers present if needed
+            
+            # Rebuild complete full-stack bundles
+            npm run build
+            
+            # Restart PM2 processes if PM2 is configured
+            if command -v pm2 &> /dev/null; then
+              echo "PM2 found, recycling processes..."
+              pm2 restart ecosystem.config.cjs || pm2 start ecosystem.config.cjs
+              pm2 save
+            fi
+            
+            # Restart Docker system if Docker/Docker Compose is active
+            if [ -f "docker-compose.yml" ] && command -v docker-compose &> /dev/null; then
+              echo "Docker Compose detected, recycling containers..."
+              docker-compose down
+              docker-compose up -d --build
+            elif [ -f "docker-compose.yml" ] && command -v docker &> /dev/null; then
+              echo "Docker Compose V2 detected, recycling containers..."
+              docker compose down
+              docker compose up -d --build
+            fi
+            
+            echo "Production deployment finalized successfully!"
