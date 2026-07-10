@@ -204,7 +204,37 @@ export class StreamManager {
       }
     }
 
-    // Video filter logic
+    // Resolution scaling calculation
+    let targetWidth = 1280;
+    let targetHeight = 720;
+    const isPortrait = settings.aspectRatio === '9:16';
+
+    if (settings.resolution === '1080p') {
+      targetWidth = isPortrait ? 1080 : 1920;
+      targetHeight = isPortrait ? 1920 : 1080;
+    } else if (settings.resolution === '480p') {
+      targetWidth = isPortrait ? 480 : 854;
+      targetHeight = isPortrait ? 854 : 480;
+    } else { // 720p
+      targetWidth = isPortrait ? 720 : 1280;
+      targetHeight = isPortrait ? 1280 : 720;
+    }
+
+    const scaleMode = settings.scaleMode || 'fit';
+    let resScale_filter = '';
+
+    if (scaleMode === 'crop') {
+      // Crop to fill targetWidth x targetHeight (force aspect ratio increase, then crop)
+      resScale_filter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}`;
+    } else if (scaleMode === 'stretch') {
+      // Simple scaling to targetWidth x targetHeight
+      resScale_filter = `scale=${targetWidth}:${targetHeight}`;
+    } else { // 'fit' (default)
+      // Letterbox / Pillarbox centering using scale and pad
+      resScale_filter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`;
+    }
+
+    // Video filter logic combining scaling and overlays
     let filterString = '';
     const logoPos = settings.logoPosition;
     const textPos = settings.textPosition;
@@ -227,18 +257,19 @@ export class StreamManager {
     const cleanText = text ? text.replace(/'/g, "'\\''") : '';
 
     if (hasLogo && text) {
-      filterString = `[0:v][1:v]overlay=${x_logo}[ovr];[ovr]drawtext=text='${cleanText}':fontcolor=${settings.textColor}:fontsize=${settings.textSize}:x=${x_text}:y=${y_text}${fontOption}`;
+      // Scale video first, then apply logo and text overlays on top of the scaled stream
+      filterString = `[0:v]${resScale_filter}[scaled];[scaled][1:v]overlay=${x_logo}[ovr];[ovr]drawtext=text='${cleanText}':fontcolor=${settings.textColor}:fontsize=${settings.textSize}:x=${x_text}:y=${y_text}${fontOption}`;
     } else if (hasLogo) {
-      filterString = `[0:v][1:v]overlay=${x_logo}`;
+      filterString = `[0:v]${resScale_filter}[scaled];[scaled][1:v]overlay=${x_logo}`;
     } else if (text) {
-      filterString = `drawtext=text='${cleanText}':fontcolor=${settings.textColor}:fontsize=${settings.textSize}:x=${x_text}:y=${y_text}${fontOption}`;
+      filterString = `[0:v]${resScale_filter}[scaled];[scaled]drawtext=text='${cleanText}':fontcolor=${settings.textColor}:fontsize=${settings.textSize}:x=${x_text}:y=${y_text}${fontOption}`;
+    } else {
+      filterString = resScale_filter;
     }
 
-    if (filterString) {
-      args.push('-vf', filterString);
-    }
+    args.push('-vf', filterString);
 
-    // Encoding parameters optimized for general streaming
+    // Encoding parameters optimized for general streaming (e.g. Facebook RTMPS and YouTube RTMP)
     args.push('-c:v', 'libx264');
     args.push('-preset', 'ultrafast');
     args.push('-tune', 'zerolatency');
@@ -248,28 +279,23 @@ export class StreamManager {
     const bitrateInt = parseInt(settings.videoBitrate) || 2500;
     args.push('-bufsize', `${bitrateInt * 2}k`);
 
-    // Audio parameters
+    // Force exact 2-second keyframe intervals and standard pixel format required by Facebook and YouTube
+    args.push('-r', '30'); // Constant framerate: 30 FPS
+    args.push('-g', '60'); // GOP: 60 frames (exactly 2 seconds at 30 FPS)
+    args.push('-keyint_min', '60');
+    args.push('-sc_threshold', '0'); // Disable scene-change detection to enforce rigid 2-second keyframes
+    args.push('-pix_fmt', 'yuv420p'); // Force standard web-compatible pixel format
+    args.push('-vsync', '1'); // Force constant framerate sync
+
+    // Audio parameters optimized for Facebook (stereo standard)
     args.push('-c:a', 'aac');
     args.push('-b:a', settings.audioBitrate);
     args.push('-ar', '44100');
+    args.push('-ac', '2'); // Force stereo to prevent Facebook ingestion drops
 
-    // Resolution scaling
-    let resScale = 'scale=1280:720';
-    if (settings.resolution === '1080p') resScale = 'scale=1920:1080';
-    else if (settings.resolution === '480p') resScale = 'scale=854:480';
-    
-    // Add scaling to the vf if filters already present, or add -vf scale
-    if (filterString) {
-      // Find the end of vf or prepend scale
-      args.pop(); // remove filterString
-      args.pop(); // remove -vf
-      args.push('-vf', `scale=w=iw:h=ih,${filterString},${resScale}`);
-    } else {
-      args.push('-vf', resScale);
-    }
-
-    // Output settings
+    // Output settings with flvflags to prevent non-seekable live stream metadata errors
     args.push('-f', 'flv');
+    args.push('-flvflags', 'no_duration_filesize');
     args.push(rtmpDestination);
 
     logEvent('info', `Spawning FFmpeg for "${key.name}" (${key.platform}). Destination: ${key.rtmpUrl}`);

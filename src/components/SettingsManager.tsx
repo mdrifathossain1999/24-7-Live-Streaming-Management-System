@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Shield, Sliders, Type, Image, Save, Lock, Trash2, Upload, AlertCircle, CheckCircle } from 'lucide-react';
 import { StreamSettings } from '../types';
 import { safeFetchJson } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 interface SettingsProps {
   token: string;
@@ -28,11 +29,14 @@ export default function SettingsManager({ token }: SettingsProps) {
   const [resolution, setResolution] = useState<'1080p' | '720p' | '480p'>('720p');
   const [videoBitrate, setVideoBitrate] = useState('2500k');
   const [audioBitrate, setAudioBitrate] = useState('128k');
+  const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [scaleMode, setScaleMode] = useState<'fit' | 'crop' | 'stretch'>('fit');
 
   // Form states - Passwords
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showDeleteLogoConfirm, setShowDeleteLogoConfirm] = useState(false);
 
   const fetchSettings = async () => {
     try {
@@ -52,6 +56,8 @@ export default function SettingsManager({ token }: SettingsProps) {
         setResolution(data.resolution);
         setVideoBitrate(data.videoBitrate);
         setAudioBitrate(data.audioBitrate);
+        setAspectRatio(data.aspectRatio || '16:9');
+        setScaleMode(data.scaleMode || 'fit');
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -85,7 +91,9 @@ export default function SettingsManager({ token }: SettingsProps) {
           textSize,
           resolution,
           videoBitrate,
-          audioBitrate
+          audioBitrate,
+          aspectRatio,
+          scaleMode
         })
       });
 
@@ -128,7 +136,11 @@ export default function SettingsManager({ token }: SettingsProps) {
   };
 
   const handleDeleteLogo = async () => {
-    if (!confirm('Are you sure you want to remove the logo overlay?')) return;
+    setShowDeleteLogoConfirm(true);
+  };
+
+  const confirmDeleteLogo = async () => {
+    setShowDeleteLogoConfirm(false);
     setError('');
     setSuccess('');
 
@@ -235,9 +247,38 @@ export default function SettingsManager({ token }: SettingsProps) {
                     onChange={(e) => setResolution(e.target.value as any)}
                     className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-red-500 cursor-pointer"
                   >
-                    <option value="1080p">1080p Full HD (1920x1080)</option>
-                    <option value="720p">720p HD (1280x720)</option>
-                    <option value="480p">480p SD (854x480)</option>
+                    <option value="1080p">1080p Full HD ({aspectRatio === '9:16' ? '1080x1920' : '1920x1080'})</option>
+                    <option value="720p">720p HD ({aspectRatio === '9:16' ? '720x1280' : '1280x720'})</option>
+                    <option value="480p">480p SD ({aspectRatio === '9:16' ? '480x854' : '854x480'})</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Aspect Ratio (Layout)
+                  </label>
+                  <select
+                    value={aspectRatio}
+                    onChange={(e) => setAspectRatio(e.target.value as any)}
+                    className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-red-500 cursor-pointer"
+                  >
+                    <option value="16:9">16:9 Landscape (Standard TV & Web)</option>
+                    <option value="9:16">9:16 Portrait (Mobile / Shorts / Reels)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Size Optimization (Scaling Mode)
+                  </label>
+                  <select
+                    value={scaleMode}
+                    onChange={(e) => setScaleMode(e.target.value as any)}
+                    className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-red-500 cursor-pointer"
+                  >
+                    <option value="fit">Fit & Pad (Original ratio with black bars)</option>
+                    <option value="crop">Crop & Fill (Zoom/Crop to fill screen)</option>
+                    <option value="stretch">Stretch (Force stretch to fit)</option>
                   </select>
                 </div>
 
@@ -526,6 +567,16 @@ export default function SettingsManager({ token }: SettingsProps) {
           </form>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showDeleteLogoConfirm}
+        title="Remove Logo Overlay"
+        message="Are you sure you want to remove the logo overlay?"
+        confirmText="Remove Logo"
+        isDestructive={true}
+        onConfirm={confirmDeleteLogo}
+        onCancel={() => setShowDeleteLogoConfirm(false)}
+      />
     </div>
   );
 }

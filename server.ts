@@ -66,6 +66,19 @@ const uploadVideo = multer({
   }
 });
 
+const chunkStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const tempDir = path.resolve(process.cwd(), 'uploads/videos/tmp');
+    fs.mkdirSync(tempDir, { recursive: true });
+    cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `chunk-${uniqueSuffix}`);
+  }
+});
+const uploadChunk = multer({ storage: chunkStorage });
+
 const logoStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, logosDir),
   filename: (req, file, cb) => {
@@ -207,6 +220,28 @@ app.post('/api/stream-keys', authenticateToken, async (req, res) => {
   }
 });
 
+app.put('/api/stream-keys/bulk/status', authenticateToken, async (req, res) => {
+  const { ids, enabled } = req.body;
+  if (!Array.isArray(ids)) {
+    return res.status(400).json({ error: 'ids must be an array of numbers' });
+  }
+
+  try {
+    const db = await getDb();
+    const enabledVal = enabled ? 1 : 0;
+    
+    for (const id of ids) {
+      await db.run('UPDATE stream_keys SET enabled = ? WHERE id = ?', [enabledVal, id]);
+      await StreamManager.getInstance().syncStreamKey(id, enabled);
+    }
+
+    await logEvent('info', `Bulk updated ${ids.length} stream destinations to ${enabled ? 'ENABLED' : 'DISABLED'}`);
+    res.json({ message: 'Bulk status updated successfully' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/stream-keys/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { platform, name, rtmpUrl, streamKey, enabled } = req.body;
@@ -288,6 +323,100 @@ app.post('/api/playlist/upload', authenticateToken, uploadVideo.single('video'),
   }
 });
 
+app.post('/api/playlist/upload-chunk', authenticateToken, uploadChunk.single('chunk'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No chunk file provided' });
+  }
+
+  const { uploadId, chunkIndex, totalChunks, originalName } = req.body;
+  if (!uploadId || chunkIndex === undefined || !totalChunks || !originalName) {
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'Missing chunk metadata' });
+  }
+
+  try {
+    const chunkDir = path.resolve(process.cwd(), `uploads/videos/tmp-${uploadId}`);
+    fs.mkdirSync(chunkDir, { recursive: true });
+
+    const targetPath = path.join(chunkDir, `chunk-${chunkIndex}`);
+    if (fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+    }
+    fs.renameSync(req.file.path, targetPath);
+
+    const totalChunksCount = parseInt(totalChunks);
+    const chunkIndexNum = parseInt(chunkIndex);
+
+    // Check if all chunks have been received
+    let allChunksReceived = true;
+    const chunkFiles: string[] = [];
+    for (let i = 0; i < totalChunksCount; i++) {
+      const p = path.join(chunkDir, `chunk-${i}`);
+      if (!fs.existsSync(p)) {
+        allChunksReceived = false;
+        break;
+      }
+      chunkFiles.push(p);
+    }
+
+    if (allChunksReceived) {
+      // Assemble the final file
+      const ext = path.extname(originalName).toLowerCase();
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const finalFileName = 'video-' + uniqueSuffix + ext;
+      const finalFilePath = path.join(videosDir, finalFileName);
+
+      const writeStream = fs.createWriteStream(finalFilePath);
+
+      // Append chunks sequentially
+      for (const chunkPath of chunkFiles) {
+        const data = fs.readFileSync(chunkPath);
+        writeStream.write(data);
+      }
+      writeStream.end();
+
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', () => resolve());
+        writeStream.on('error', (err) => reject(err));
+      });
+
+      // Cleanup chunks directory
+      fs.rmSync(chunkDir, { recursive: true, force: true });
+
+      // Add to database
+      const relativePath = `uploads/videos/${finalFileName}`;
+      const duration = await getVideoDuration(finalFilePath);
+      const db = await getDb();
+      
+      const fileStats = fs.statSync(finalFilePath);
+      const finalSize = fileStats.size;
+
+      const maxOrderResult = await db.get('SELECT MAX(orderIndex) as maxIndex FROM playlist');
+      const orderIndex = (maxOrderResult && (maxOrderResult as any).maxIndex !== null)
+        ? (maxOrderResult as any).maxIndex + 1
+        : 0;
+
+      const result = await db.run(
+        `INSERT INTO playlist (filename, originalname, filepath, size, duration, orderIndex, createdAt) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [finalFileName, originalName, relativePath, finalSize, duration, orderIndex, new Date().toISOString()]
+      );
+
+      const newVideo = await db.get('SELECT * FROM playlist WHERE id = ?', [result.lastID]);
+      await logEvent('success', `Uploaded video playlist file (chunked): "${originalName}" (${Math.round(duration)}s)`);
+      return res.json({ complete: true, video: newVideo });
+    }
+
+    res.json({ complete: false, receivedChunk: chunkIndexNum });
+  } catch (err: any) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    console.error('Error handling chunk upload:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/playlist/reorder', authenticateToken, async (req, res) => {
   const { orderedIds } = req.body; // array of IDs
   if (!Array.isArray(orderedIds)) {
@@ -363,17 +492,17 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
 
 app.post('/api/settings', authenticateToken, async (req, res) => {
   const {
-    loopPlaylist, logoPosition, textOverlay, textPosition, textColor, textSize, resolution, videoBitrate, audioBitrate
+    loopPlaylist, logoPosition, textOverlay, textPosition, textColor, textSize, resolution, videoBitrate, audioBitrate, aspectRatio, scaleMode
   } = req.body;
 
   try {
     const db = await getDb();
     await db.run(`
       UPDATE settings SET 
-        loopPlaylist = ?, logoPosition = ?, textOverlay = ?, textPosition = ?, textColor = ?, textSize = ?, resolution = ?, videoBitrate = ?, audioBitrate = ?
+        loopPlaylist = ?, logoPosition = ?, textOverlay = ?, textPosition = ?, textColor = ?, textSize = ?, resolution = ?, videoBitrate = ?, audioBitrate = ?, aspectRatio = ?, scaleMode = ?
       WHERE id = 1
     `, [
-      loopPlaylist ? 1 : 0, logoPosition, textOverlay, textPosition, textColor, parseInt(textSize) || 24, resolution, videoBitrate, audioBitrate
+      loopPlaylist ? 1 : 0, logoPosition, textOverlay, textPosition, textColor, parseInt(textSize) || 24, resolution, videoBitrate, audioBitrate, aspectRatio || '16:9', scaleMode || 'fit'
     ]);
 
     await logEvent('info', 'Updated streaming settings configuration');

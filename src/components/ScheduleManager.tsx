@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, Clock, CheckCircle2, AlertTriangle, PlayCircle, Loader } from 'lucide-react';
 import { Schedule, VideoFile, StreamKey } from '../types';
 import { safeFetchJson } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 interface ScheduleProps {
   token: string;
@@ -20,6 +21,7 @@ export default function ScheduleManager({ token }: ScheduleProps) {
   const [selectedVideo, setSelectedVideo] = useState('');
   const [selectedKey, setSelectedKey] = useState('');
   const [dateTime, setDateTime] = useState('');
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   const fetchData = async () => {
     try {
@@ -85,9 +87,13 @@ export default function ScheduleManager({ token }: ScheduleProps) {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to cancel this scheduled live stream?')) {
-      return;
-    }
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (deleteTargetId === null) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
 
     try {
       const { error: fetchErr } = await safeFetchJson(`/api/schedules/${id}`, {
@@ -284,6 +290,16 @@ export default function ScheduleManager({ token }: ScheduleProps) {
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={deleteTargetId !== null}
+        title="Cancel Scheduled Stream"
+        message="Are you sure you want to cancel this scheduled live stream?"
+        confirmText="Cancel Stream"
+        isDestructive={true}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

@@ -63,7 +63,9 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
       textSize INTEGER DEFAULT 24,
       resolution TEXT DEFAULT '720p',
       videoBitrate TEXT DEFAULT '2500k',
-      audioBitrate TEXT DEFAULT '128k'
+      audioBitrate TEXT DEFAULT '128k',
+      aspectRatio TEXT DEFAULT '16:9',
+      scaleMode TEXT DEFAULT 'fit'
     );
 
     CREATE TABLE IF NOT EXISTS schedules (
@@ -84,6 +86,18 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
     );
   `);
 
+  // Run migrations to ensure columns exist in existing DB instances
+  try {
+    await dbInstance.run(`ALTER TABLE settings ADD COLUMN aspectRatio TEXT DEFAULT '16:9'`);
+  } catch (err) {
+    // Ignore error if column already exists
+  }
+  try {
+    await dbInstance.run(`ALTER TABLE settings ADD COLUMN scaleMode TEXT DEFAULT 'fit'`);
+  } catch (err) {
+    // Ignore error if column already exists
+  }
+
   // Seed default admin user if not exists
   const adminExists = await dbInstance.get('SELECT * FROM users WHERE username = ?', ['admin']);
   if (!adminExists) {
@@ -97,9 +111,9 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
   if (settingsCount && (settingsCount as any).count === 0) {
     await dbInstance.run(`
       INSERT INTO settings (
-        loopPlaylist, logoPath, logoPosition, textOverlay, textPosition, textColor, textSize, resolution, videoBitrate, audioBitrate
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [1, null, 'top-right', 'Live Streaming Management System', 'bottom-left', '#ffffff', 24, '720p', '2500k', '128k']);
+        loopPlaylist, logoPath, logoPosition, textOverlay, textPosition, textColor, textSize, resolution, videoBitrate, audioBitrate, aspectRatio, scaleMode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [1, null, 'top-right', 'Live Streaming Management System', 'bottom-left', '#ffffff', 24, '720p', '2500k', '128k', '16:9', 'fit']);
     console.log('Seeded default settings');
   }
 

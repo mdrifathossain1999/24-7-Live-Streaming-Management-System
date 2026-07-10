@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Upload, Film, Trash2, ArrowUp, ArrowDown, Info, Play, FileVideo } from 'lucide-react';
 import { VideoFile } from '../types';
 import { safeFetchJson } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 interface PlaylistProps {
   token: string;
@@ -14,6 +15,9 @@ export default function PlaylistManager({ token }: PlaylistProps) {
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   const fetchPlaylist = async () => {
     try {
@@ -72,35 +76,73 @@ export default function PlaylistManager({ token }: PlaylistProps) {
     }
 
     setUploading(true);
-    const formData = new FormData();
-    formData.append('video', file);
+    setUploadProgress(0);
+    setUploadStatus('Preparing upload...');
 
     try {
-      const { data, error: fetchErr } = await safeFetchJson('/api/playlist/upload', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
-        body: formData
-      });
+      const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const uploadId = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 
-      if (fetchErr) {
-        throw new Error(fetchErr);
+      let completedSuccessfully = false;
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        setUploadStatus(`Uploading part ${i + 1} of ${totalChunks}...`);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk, `${file.name}.part_${i}`);
+        formData.append('uploadId', uploadId);
+        formData.append('chunkIndex', i.toString());
+        formData.append('totalChunks', totalChunks.toString());
+        formData.append('originalName', file.name);
+
+        const { data, error: fetchErr } = await safeFetchJson<any>('/api/playlist/upload-chunk', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (fetchErr) {
+          throw new Error(fetchErr);
+        }
+
+        const percent = Math.round(((i + 1) / totalChunks) * 100);
+        setUploadProgress(percent);
+
+        if (data && data.complete) {
+          completedSuccessfully = true;
+        }
       }
 
-      setSuccess(`Uploaded successfully: "${file.name}"`);
-      await fetchPlaylist();
+      if (completedSuccessfully) {
+        setSuccess(`Uploaded successfully: "${file.name}"`);
+        await fetchPlaylist();
+      } else {
+        throw new Error('Upload completed, but server did not confirm merge');
+      }
     } catch (err: any) {
       setError(err.message || 'Error uploading file');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
+      setUploadStatus('');
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this video? It will be permanently removed from disk.')) {
-      return;
-    }
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (deleteTargetId === null) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
 
     try {
       const { error: fetchErr } = await safeFetchJson(`/api/playlist/${id}`, {
@@ -217,11 +259,23 @@ export default function PlaylistManager({ token }: PlaylistProps) {
           </div>
           <div>
             <p className="text-sm font-semibold text-white">
-              {uploading ? 'Processing & reading metadata...' : 'Upload MP4 Loop Videos'}
+              {uploading ? (uploadStatus || 'Processing & reading metadata...') : 'Upload MP4 Loop Videos'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
-              Drag & drop your files here, or <span className="text-red-500 font-medium">browse local files</span>
-            </p>
+            {uploading && uploadProgress !== null ? (
+              <div className="w-full max-w-xs mx-auto mt-3">
+                <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                  <div 
+                    className="bg-red-500 h-full transition-all duration-300" 
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400 mt-1.5 font-medium">{uploadProgress}% uploaded</p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 mt-1">
+                Drag & drop your files here, or <span className="text-red-500 font-medium">browse local files</span>
+              </p>
+            )}
           </div>
         </label>
       </div>
@@ -303,6 +357,16 @@ export default function PlaylistManager({ token }: PlaylistProps) {
           </div>
         )}
       </div>
+      
+      <ConfirmationModal
+        isOpen={deleteTargetId !== null}
+        title="Delete Video"
+        message="Are you sure you want to delete this video? It will be permanently removed from disk."
+        confirmText="Delete"
+        isDestructive={true}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

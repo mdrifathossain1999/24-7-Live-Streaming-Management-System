@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Key, Plus, Trash2, Edit3, Eye, EyeOff, Save, CheckCircle2, Globe, Radio } from 'lucide-react';
 import { StreamKey } from '../types';
 import { safeFetchJson } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 interface StreamKeysProps {
   token: string;
@@ -29,6 +30,7 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
 
   // Masking states
   const [revealMap, setRevealMap] = useState<Record<number, boolean>>({});
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   const fetchKeys = async () => {
     try {
@@ -110,9 +112,13 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this stream key configuration?')) {
-      return;
-    }
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (deleteTargetId === null) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
 
     try {
       const { error: fetchErr } = await safeFetchJson(`/api/stream-keys/${id}`, {
@@ -375,6 +381,16 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={deleteTargetId !== null}
+        title="Delete Stream Destination"
+        message="Are you sure you want to delete this stream key configuration?"
+        confirmText="Delete"
+        isDestructive={true}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

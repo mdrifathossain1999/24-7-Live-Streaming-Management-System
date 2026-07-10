@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, Activity, Cpu, HardDrive, RefreshCw, Layers, Terminal, AlertTriangle, CheckCircle, Info } from 'lucide-react';
-import { SystemStats, StreamLog } from '../types';
+import { Play, Square, Activity, Cpu, HardDrive, RefreshCw, Layers, Terminal, AlertTriangle, CheckCircle, Info, Globe, ToggleLeft, ToggleRight, CheckSquare, Square as SquareIcon } from 'lucide-react';
+import { SystemStats, StreamLog, StreamKey } from '../types';
 import { safeFetchJson } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 interface DashboardProps {
   token: string;
@@ -10,16 +11,21 @@ interface DashboardProps {
 export default function Dashboard({ token }: DashboardProps) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [logs, setLogs] = useState<StreamLog[]>([]);
+  const [keys, setKeys] = useState<StreamKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsResult, logsResult] = await Promise.all([
+        const [statsResult, logsResult, keysResult] = await Promise.all([
           safeFetchJson<SystemStats>('/api/stats', { headers: { Authorization: `Bearer ${token}` } }),
           safeFetchJson<StreamLog[]>('/api/logs', { headers: { Authorization: `Bearer ${token}` } }),
+          safeFetchJson<StreamKey[]>('/api/stream-keys', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
         if (statsResult.ok && statsResult.data) {
@@ -27,6 +33,9 @@ export default function Dashboard({ token }: DashboardProps) {
         }
         if (logsResult.ok && logsResult.data) {
           setLogs(logsResult.data);
+        }
+        if (keysResult.ok && keysResult.data) {
+          setKeys(keysResult.data);
         }
       } catch (err) {
         console.error('Failed to poll dashboard data:', err);
@@ -42,37 +51,102 @@ export default function Dashboard({ token }: DashboardProps) {
 
   const handleStart = async () => {
     setActionLoading(true);
+    setError('');
     try {
       const { data, error: fetchErr } = await safeFetchJson('/api/stream/start', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
       if (fetchErr) {
-        alert(fetchErr || 'Failed to start streaming');
+        setError(fetchErr || 'Failed to start streaming');
       }
       setRefreshKey((prev) => prev + 1);
     } catch (err) {
-      alert('Network error initiating stream');
+      setError('Network error initiating stream');
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleStop = async () => {
-    if (!confirm('Are you sure you want to STOP the live broadcast? This will disconnect all channels.')) {
-      return;
-    }
+    setShowStopConfirm(true);
+  };
+
+  const confirmStop = async () => {
+    setShowStopConfirm(false);
     setActionLoading(true);
+    setError('');
     try {
-      await safeFetchJson('/api/stream/stop', {
+      const { error: fetchErr } = await safeFetchJson('/api/stream/stop', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (fetchErr) {
+        setError(fetchErr || 'Failed to stop streaming');
+      }
       setRefreshKey((prev) => prev + 1);
     } catch (err) {
-      alert('Network error stopping stream');
+      setError('Network error stopping stream');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleBulkStatusChange = async (enabled: boolean) => {
+    if (keys.length === 0) return;
+    setBulkLoading(true);
+    setError('');
+    const ids = keys.map((k) => k.id);
+    try {
+      const { error: fetchErr } = await safeFetchJson('/api/stream-keys/bulk/status', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids, enabled }),
+      });
+      if (fetchErr) {
+        setError(fetchErr);
+      } else {
+        setKeys((prev) =>
+          prev.map((k) => ({ ...k, enabled: enabled ? 1 : 0 }))
+        );
+      }
+    } catch (err) {
+      setError('Network error during bulk operation');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleToggleSingleKey = async (key: StreamKey) => {
+    setError('');
+    const nextEnabled = key.enabled === 1 ? 0 : 1;
+    try {
+      const { error: fetchErr } = await safeFetchJson(`/api/stream-keys/${key.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          platform: key.platform,
+          name: key.name,
+          rtmpUrl: key.rtmpUrl,
+          streamKey: key.streamKey,
+          enabled: nextEnabled,
+        }),
+      });
+      if (fetchErr) {
+        setError(fetchErr);
+      } else {
+        setKeys((prev) =>
+          prev.map((k) => (k.id === key.id ? { ...k, enabled: nextEnabled } : k))
+        );
+      }
+    } catch (err) {
+      setError('Network error toggling target destination');
     }
   };
 
@@ -136,6 +210,13 @@ export default function Dashboard({ token }: DashboardProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="p-4 bg-red-950/40 border border-red-900/50 rounded-xl text-sm text-red-300 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-white font-bold ml-4 cursor-pointer">✕</button>
+        </div>
+      )}
+
       {/* Top Telemetry Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Status Card */}
@@ -287,36 +368,125 @@ export default function Dashboard({ token }: DashboardProps) {
           </div>
         </div>
 
-        {/* Channels Monitor */}
+        {/* Bulk Broadcast Target Deck */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
           <div>
-            <h2 className="text-lg font-bold text-white mb-4 pb-4 border-b border-slate-800 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-red-500" />
-              Dynamic Outputs
-            </h2>
+            <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-red-500" />
+                Broadcast Deck Targets
+              </h2>
+              <span className="text-xs bg-slate-800 text-slate-300 font-semibold px-2 py-0.5 rounded-full font-mono">
+                {keys.filter(k => k.enabled === 1).length}/{keys.length} Active
+              </span>
+            </div>
 
-            {stats?.connectedOutputs && stats.connectedOutputs.length > 0 ? (
-              <div className="space-y-4">
-                {stats.connectedOutputs.map((outputId) => (
-                  <div key={outputId} className="p-3.5 bg-slate-950 border border-slate-800/60 rounded-xl flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Channel Key #{outputId}</p>
-                      <p className="text-xs text-slate-500 mt-0.5 font-mono">Status: Pipe connected</p>
+            {/* Bulk Actions Bar */}
+            <div className="grid grid-cols-2 gap-2.5 mb-5">
+              <button
+                onClick={() => handleBulkStatusChange(true)}
+                disabled={bulkLoading || keys.length === 0}
+                className="py-2.5 px-3 bg-red-600/15 hover:bg-red-600/25 disabled:opacity-50 text-red-400 hover:text-red-300 font-semibold text-xs rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <CheckSquare className="w-4 h-4" />
+                Enable All
+              </button>
+              <button
+                onClick={() => handleBulkStatusChange(false)}
+                disabled={bulkLoading || keys.length === 0}
+                className="py-2.5 px-3 bg-slate-950 hover:bg-slate-850 disabled:opacity-50 text-slate-400 hover:text-white font-semibold text-xs rounded-xl border border-slate-850 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <SquareIcon className="w-4 h-4" />
+                Disable All
+              </button>
+            </div>
+
+            {/* Targets list */}
+            {keys.length > 0 ? (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-850">
+                {keys.map((key) => {
+                  const isCurrentlyActive = stats?.connectedOutputs?.includes(key.id) && isStreaming;
+                  const isEnabled = key.enabled === 1;
+
+                  return (
+                    <div
+                      key={key.id}
+                      className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                        isCurrentlyActive
+                          ? 'bg-red-950/20 border-red-900/40 shadow-sm'
+                          : isEnabled
+                          ? 'bg-slate-950 border-slate-800/85'
+                          : 'bg-slate-950/40 border-slate-900/60 opacity-60'
+                      }`}
+                    >
+                      <div className="min-w-0 flex items-center gap-3">
+                        <button
+                          onClick={() => handleToggleSingleKey(key)}
+                          className="text-slate-500 hover:text-white transition-colors cursor-pointer shrink-0"
+                          title={isEnabled ? 'Deactivate destination' : 'Activate destination'}
+                        >
+                          {isEnabled ? (
+                            <ToggleRight className="w-7 h-7 text-red-500" />
+                          ) : (
+                            <ToggleLeft className="w-7 h-7 text-slate-600" />
+                          )}
+                        </button>
+                        
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-white truncate">{key.name}</p>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md ${
+                              key.platform === 'youtube'
+                                ? 'bg-red-950 text-red-400 border border-red-900/30'
+                                : key.platform === 'facebook'
+                                ? 'bg-blue-950 text-blue-400 border border-blue-900/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700/30'
+                            }`}>
+                              {key.platform}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 truncate mt-0.5 font-mono max-w-[160px]">
+                            {key.rtmpUrl}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Connection status dot/badge */}
+                      <div className="flex items-center shrink-0 ml-2">
+                        {isCurrentlyActive ? (
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-950/50 border border-emerald-900/30 rounded-lg text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Live
+                          </div>
+                        ) : isEnabled ? (
+                          <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider px-2 py-1 bg-amber-950/30 border border-amber-900/30 rounded-lg">
+                            Ready
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider px-2 py-1 bg-slate-900/30 border border-slate-800/30 rounded-lg">
+                            Idle
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <div className="py-12 text-center text-slate-500 text-sm">
-                No active RTMP processes running.
+              <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-xl">
+                <Globe className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+                No destinations configured yet.
+                <p className="text-xs text-slate-600 mt-1">Please add target servers in Stream Targets tab.</p>
               </div>
             )}
           </div>
 
-          <div className="text-xs text-slate-400 p-3 bg-slate-950 border border-slate-800/40 rounded-xl mt-4">
-            <p className="font-semibold text-white mb-1">Auto Reconnect System</p>
-            When started, any socket or pipe errors will be caught instantly and reconnected within 5 seconds automatically.
+          <div className="text-xs text-slate-500 p-3 bg-slate-950 border border-slate-800/40 rounded-xl mt-4">
+            <p className="font-semibold text-slate-400 mb-1 flex items-center gap-1">
+              <Activity className="w-3.5 h-3.5 text-red-500" />
+              Dynamic Live Tuning
+            </p>
+            Toggling destinations above while broadcasting is active will immediately connect or disconnect the output RTMP stream without restarting.
           </div>
         </div>
       </div>
@@ -348,6 +518,16 @@ export default function Dashboard({ token }: DashboardProps) {
           )}
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showStopConfirm}
+        title="Stop Broadcast"
+        message="Are you sure you want to STOP the live broadcast? This will disconnect all channels."
+        confirmText="Stop Broadcast"
+        isDestructive={true}
+        onConfirm={confirmStop}
+        onCancel={() => setShowStopConfirm(false)}
+      />
     </div>
   );
 }

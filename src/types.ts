@@ -35,6 +35,8 @@ export interface StreamSettings {
   resolution: '1080p' | '720p' | '480p';
   videoBitrate: string; // e.g., '3000k'
   audioBitrate: string; // e.g., '128k'
+  aspectRatio: '16:9' | '9:16';
+  scaleMode: 'fit' | 'crop' | 'stretch';
 }
 
 export interface Schedule {
