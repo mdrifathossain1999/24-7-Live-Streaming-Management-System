@@ -31,13 +31,24 @@ export default function ScheduleManager({ token }: ScheduleProps) {
         safeFetchJson<StreamKey[]>('/api/stream-keys', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
-      if (schedResult.ok && videosResult.ok && keysResult.ok && schedResult.data && videosResult.data && keysResult.data) {
+      if (schedResult.ok && schedResult.data && Array.isArray(schedResult.data)) {
         setSchedules(schedResult.data);
-        setVideos(videosResult.data);
-        setKeys(keysResult.data);
+      } else {
+        setSchedules([]);
+      }
 
+      if (videosResult.ok && videosResult.data && Array.isArray(videosResult.data)) {
+        setVideos(videosResult.data);
         if (videosResult.data.length > 0) setSelectedVideo(videosResult.data[0].id.toString());
+      } else {
+        setVideos([]);
+      }
+
+      if (keysResult.ok && keysResult.data && Array.isArray(keysResult.data)) {
+        setKeys(keysResult.data);
         if (keysResult.data.length > 0) setSelectedKey(keysResult.data[0].id.toString());
+      } else {
+        setKeys([]);
       }
     } catch (err) {
       console.error(err);

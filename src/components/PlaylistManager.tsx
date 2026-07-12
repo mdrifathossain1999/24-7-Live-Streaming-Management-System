@@ -24,8 +24,10 @@ export default function PlaylistManager({ token }: PlaylistProps) {
       const { data, ok } = await safeFetchJson<VideoFile[]>('/api/playlist', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (ok && data) {
+      if (ok && data && Array.isArray(data)) {
         setPlaylist(data);
+      } else {
+        setPlaylist([]);
       }
     } catch (err) {
       console.error('Failed to fetch playlist:', err);
@@ -214,7 +216,7 @@ export default function PlaylistManager({ token }: PlaylistProps) {
           Broadcast Video Playlist
         </h1>
         <span className="text-xs text-slate-400 font-medium">
-          {playlist.length} Loop Assets
+          {Array.isArray(playlist) ? playlist.length : 0} Loop Assets
         </span>
       </div>
 
@@ -294,7 +296,7 @@ export default function PlaylistManager({ token }: PlaylistProps) {
           <div className="p-12 text-center text-slate-500">
             <span className="inline-block w-6 h-6 border-2 border-slate-800 border-t-red-500 rounded-full animate-spin"></span>
           </div>
-        ) : playlist.length === 0 ? (
+        ) : (!Array.isArray(playlist) || playlist.length === 0) ? (
           <div className="p-12 text-center text-slate-500 flex flex-col items-center justify-center">
             <FileVideo className="w-10 h-10 text-slate-700 mb-2 animate-pulse" />
             <p className="font-semibold text-slate-400">Your playlist is empty</p>
@@ -304,7 +306,7 @@ export default function PlaylistManager({ token }: PlaylistProps) {
           </div>
         ) : (
           <div className="divide-y divide-slate-800/60">
-            {playlist.map((video, index) => (
+            {Array.isArray(playlist) && playlist.map((video, index) => (
               <div key={video.id} className="p-4 flex items-center justify-between hover:bg-slate-950/40 transition-colors">
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0">

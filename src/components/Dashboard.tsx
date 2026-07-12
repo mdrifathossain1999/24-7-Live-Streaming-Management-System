@@ -31,11 +31,15 @@ export default function Dashboard({ token }: DashboardProps) {
         if (statsResult.ok && statsResult.data) {
           setStats(statsResult.data);
         }
-        if (logsResult.ok && logsResult.data) {
+        if (logsResult.ok && logsResult.data && Array.isArray(logsResult.data)) {
           setLogs(logsResult.data);
+        } else {
+          setLogs([]);
         }
-        if (keysResult.ok && keysResult.data) {
+        if (keysResult.ok && keysResult.data && Array.isArray(keysResult.data)) {
           setKeys(keysResult.data);
+        } else {
+          setKeys([]);
         }
       } catch (err) {
         console.error('Failed to poll dashboard data:', err);

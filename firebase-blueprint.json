@@ -16,8 +16,10 @@
         "videoBitrate": { "type": "string" },
         "audioBitrate": { "type": "string" },
         "aspectRatio": { "type": "string" },
-        "scaleMode": { "type": "string" }
-      }
+        "scaleMode": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["ownerId"]
     },
     "StreamKey": {
       "title": "StreamKey",
@@ -28,9 +30,10 @@
         "name": { "type": "string" },
         "rtmpUrl": { "type": "string" },
         "streamKey": { "type": "string" },
-        "enabled": { "type": "integer" }
+        "enabled": { "type": "integer" },
+        "ownerId": { "type": "string" }
       },
-      "required": ["platform", "name", "rtmpUrl", "streamKey"]
+      "required": ["platform", "name", "rtmpUrl", "streamKey", "ownerId"]
     },
     "Schedule": {
       "title": "Schedule",
@@ -42,9 +45,10 @@
         "streamKeyId": { "type": "integer" },
         "streamKeyName": { "type": "string" },
         "scheduledTime": { "type": "string" },
-        "status": { "type": "string" }
+        "status": { "type": "string" },
+        "ownerId": { "type": "string" }
       },
-      "required": ["videoId", "videoTitle", "streamKeyId", "streamKeyName", "scheduledTime"]
+      "required": ["videoId", "videoTitle", "streamKeyId", "streamKeyName", "scheduledTime", "ownerId"]
     },
     "Log": {
       "title": "Log",
@@ -53,9 +57,10 @@
       "properties": {
         "timestamp": { "type": "string" },
         "type": { "type": "string" },
-        "message": { "type": "string" }
+        "message": { "type": "string" },
+        "ownerId": { "type": "string" }
       },
-      "required": ["timestamp", "type", "message"]
+      "required": ["timestamp", "type", "message", "ownerId"]
     }
   },
   "firestore": {

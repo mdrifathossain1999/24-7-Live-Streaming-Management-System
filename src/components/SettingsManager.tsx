@@ -53,11 +53,15 @@ export default function SettingsManager({ token }: SettingsProps) {
         safeFetchJson<AdminUser[]>('/api/users', { headers: { Authorization: `Bearer ${token}` } }),
         safeFetchJson<LicenseKey[]>('/api/license-keys', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
-      if (usersRes.ok && usersRes.data) {
+      if (usersRes.ok && usersRes.data && Array.isArray(usersRes.data)) {
         setUsers(usersRes.data);
+      } else {
+        setUsers([]);
       }
-      if (keysRes.ok && keysRes.data) {
+      if (keysRes.ok && keysRes.data && Array.isArray(keysRes.data)) {
         setLicenseKeys(keysRes.data);
+      } else {
+        setLicenseKeys([]);
       }
     } catch (err) {
       console.error('Failed to fetch users or license keys:', err);

@@ -27,8 +27,9 @@ export async function safeFetchJson<T = any>(
       try {
         // Just in case it actually was JSON but content-type header was missing/wrong
         data = JSON.parse(text);
-      } catch {
+      } catch (err: any) {
         data = { error: text };
+        parseError = err;
       }
     }
 

@@ -37,8 +37,10 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
       const { data, ok } = await safeFetchJson<StreamKey[]>('/api/stream-keys', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (ok && data) {
+      if (ok && data && Array.isArray(data)) {
         setKeys(data);
+      } else {
+        setKeys([]);
       }
     } catch (err) {
       console.error(err);

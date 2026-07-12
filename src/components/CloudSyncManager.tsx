@@ -36,7 +36,9 @@ import {
   getDoc, 
   getDocs, 
   collection, 
-  getDocFromServer 
+  getDocFromServer,
+  query,
+  where
 } from 'firebase/firestore';
 import { safeFetchJson } from '../utils';
 import { StreamSettings, StreamKey, Schedule, StreamLog } from '../types';
@@ -104,17 +106,22 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
 
   // Fetch count of items backed up in Firestore
   const fetchCloudMetadata = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      console.warn('Cannot fetch cloud metadata: No authenticated user.');
+      return;
+    }
     try {
       // 1. Settings check
       const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
       setCloudSettingsExist(settingsSnap.exists());
 
       // 2. Stream Keys check
-      const keysSnap = await getDocs(collection(db, 'stream_keys'));
+      const keysSnap = await getDocs(query(collection(db, 'stream_keys'), where('ownerId', '==', uid)));
       setCloudKeysCount(keysSnap.size);
 
       // 3. Schedules check
-      const schedSnap = await getDocs(collection(db, 'schedules'));
+      const schedSnap = await getDocs(query(collection(db, 'schedules'), where('ownerId', '==', uid)));
       setCloudSchedulesCount(schedSnap.size);
     } catch (err) {
       console.error('Failed to fetch Cloud metadata:', err);
@@ -173,6 +180,11 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
         throw new Error(error || 'Failed to read local settings configuration.');
       }
 
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
+
       addLog('Uploading settings configuration payload to Firestore (/settings/global)...');
       const payload = {
         loopPlaylist: Number(data.loopPlaylist),
@@ -186,7 +198,8 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
         audioBitrate: data.audioBitrate || '128k',
         aspectRatio: data.aspectRatio || '16:9',
         scaleMode: data.scaleMode || 'fit',
-        logoPath: data.logoPath || ''
+        logoPath: data.logoPath || '',
+        ownerId: uid
       };
 
       try {
@@ -227,6 +240,11 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
         throw new Error(error || 'Failed to read local stream keys.');
       }
 
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
+
       addLog(`Found ${data.length} local streaming target(s). Initiating secure cloud upload...`);
       for (const key of data) {
         addLog(`Syncing "${key.name}" (${key.platform}) with Firestore path /stream_keys/${key.id}...`);
@@ -235,7 +253,8 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
           name: key.name,
           rtmpUrl: key.rtmpUrl,
           streamKey: key.streamKey,
-          enabled: Number(key.enabled)
+          enabled: Number(key.enabled),
+          ownerId: uid
         };
         try {
           await setDoc(doc(db, 'stream_keys', String(key.id)), payload);
@@ -276,6 +295,11 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
         throw new Error(error || 'Failed to load local calendars.');
       }
 
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
+
       addLog(`Found ${data.length} local scheduled item(s). Preparing atomic sync payloads...`);
       for (const sched of data) {
         addLog(`Writing schedule #${sched.id} ("${sched.videoTitle}" -> "${sched.streamKeyName}") to Firestore...`);
@@ -285,7 +309,8 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
           streamKeyId: Number(sched.streamKeyId),
           streamKeyName: sched.streamKeyName,
           scheduledTime: sched.scheduledTime,
-          status: sched.status
+          status: sched.status,
+          ownerId: uid
         };
         try {
           await setDoc(doc(db, 'schedules', String(sched.id)), payload);
@@ -324,12 +349,18 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
         throw new Error(error || 'Failed to fetch local logs.');
       }
 
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
+
       addLog(`Acquired ${data.length} event logs. Sending to cloud workspace audit path...`);
       for (const logItem of data) {
         const payload = {
           timestamp: logItem.timestamp,
           type: logItem.type,
-          message: logItem.message
+          message: logItem.message,
+          ownerId: uid
         };
         try {
           await setDoc(doc(db, 'logs', String(logItem.id)), payload);
@@ -435,9 +466,13 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
     }
     addLog('Downloading streaming target configurations from Cloud Firestore (/stream_keys)...');
     try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
       let querySnap;
       try {
-        querySnap = await getDocs(collection(db, 'stream_keys'));
+        querySnap = await getDocs(query(collection(db, 'stream_keys'), where('ownerId', '==', uid)));
       } catch (errSnap) {
         handleFirestoreError(errSnap, OperationType.LIST, 'stream_keys');
         return false;
@@ -497,9 +532,13 @@ export default function CloudSyncManager({ token }: CloudSyncManagerProps) {
     }
     addLog('Downloading broadcast calendar schedules from Cloud Firestore (/schedules)...');
     try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        throw new Error('Not authenticated.');
+      }
       let querySnap;
       try {
-        querySnap = await getDocs(collection(db, 'schedules'));
+        querySnap = await getDocs(query(collection(db, 'schedules'), where('ownerId', '==', uid)));
       } catch (errSnap) {
         handleFirestoreError(errSnap, OperationType.LIST, 'schedules');
         return false;
