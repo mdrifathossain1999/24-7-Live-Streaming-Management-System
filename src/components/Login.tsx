@@ -232,7 +232,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     } catch (err: any) {
       console.error('Google Sign-In Error:', err);
-      setError(err.message || 'Google sign-in was cancelled or failed.');
+      let customError = err.message || 'Google sign-in was cancelled or failed.';
+      if (err.code === 'auth/unauthorized-domain' || (err.message && err.message.includes('unauthorized-domain'))) {
+        customError = `🔑 Firebase Authorized Domain Required: The domain "${window.location.hostname}" must be added to your Firebase project. To fix this, go to your Firebase Console -> Authentication -> Settings -> Authorized Domains, click "Add domain", enter "${window.location.hostname}", and click save. Then refresh and try again!`;
+      } else if (err.message && (err.message.includes('405') || err.message.includes('Method Not Allowed'))) {
+        customError = `❌ Proxy / Worker Blocking POST (405): Your Cloudflare Worker/Proxy "${window.location.hostname}" is blocking POST requests. The 24/7 Streamer platform requires POST requests for authentication, playlist management, and live stream actions. Please update your Cloudflare Worker script to allow and forward all HTTP methods, especially POST and OPTIONS.`;
+      }
+      setError(customError);
     } finally {
       setLoading(false);
     }
