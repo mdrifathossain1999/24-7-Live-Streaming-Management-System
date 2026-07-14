@@ -27,9 +27,10 @@ import {
   MessageSquare,
   Send,
   Zap,
-  HelpCircle
+  HelpCircle,
+  Globe
 } from 'lucide-react';
-import { safeFetchJson } from '../utils';
+import { safeFetchJson, getBackendUrl, setBackendUrl } from '../utils';
 import { auth } from '../firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
@@ -38,6 +39,10 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
+  // Backend connection settings
+  const [backendUrl, setBackendUrlState] = useState(() => getBackendUrl());
+  const [showBackendConfig, setShowBackendConfig] = useState(false);
+
   // Authentication states
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
@@ -143,6 +148,16 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     return () => clearInterval(interval);
   }, [simIsStreaming]);
+
+  // Listen for the custom event to trigger the connection settings modal
+  useEffect(() => {
+    const handleOpenConfig = () => {
+      setShowBackendConfig(true);
+      setShowAuthModal(false); // Hide login modal if open so they can see backend config
+    };
+    window.addEventListener('open-backend-config', handleOpenConfig);
+    return () => window.removeEventListener('open-backend-config', handleOpenConfig);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -291,9 +306,39 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   ];
 
+  const isCustomDomain = typeof window !== 'undefined' && 
+    !window.location.hostname.includes('localhost') && 
+    !window.location.hostname.includes('127.0.0.1') && 
+    !window.location.hostname.includes('asia-southeast1.run.app');
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-red-500 selection:text-white overflow-x-hidden relative">
       
+      {isCustomDomain && (
+        <div className="bg-gradient-to-r from-red-950/85 via-slate-900/95 to-red-950/85 border-b border-red-900/40 px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-2.5 relative z-50 backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${backendUrl ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${backendUrl ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+            </span>
+            <p className="text-[10px] sm:text-xs text-slate-300 font-bold tracking-wider">
+              Statically hosted on <span className="text-white font-extrabold">{window.location.hostname}</span>. 
+              {backendUrl ? (
+                <span className="text-emerald-400 font-medium ml-1">Connected to Backend: {backendUrl}</span>
+              ) : (
+                <span className="text-amber-400 font-medium ml-1">Requires Cloud Run Backend URL to execute API requests.</span>
+              )}
+            </p>
+          </div>
+          <button 
+            onClick={() => setShowBackendConfig(true)}
+            className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white font-bold text-[9px] uppercase tracking-widest rounded-lg transition-all cursor-pointer border border-red-500/20"
+          >
+            {backendUrl ? 'Change Backend API URL' : 'Configure Backend API URL'}
+          </button>
+        </div>
+      )}
+
       {/* Decorative Blur Ambient Elements */}
       <div className="absolute top-[-5%] left-[-5%] w-[600px] h-[600px] bg-red-600/15 rounded-full blur-[140px] pointer-events-none"></div>
       <div className="absolute top-[30%] right-[-10%] w-[700px] h-[700px] bg-blue-600/15 rounded-full blur-[160px] pointer-events-none"></div>
@@ -1387,6 +1432,20 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 <span>Gmail / Google Login</span>
               </button>
 
+              <div className="mt-4 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAuthModal(false);
+                    setShowBackendConfig(true);
+                  }}
+                  className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-red-400 font-extrabold uppercase tracking-widest transition-colors cursor-pointer bg-slate-950/40 px-3 py-1.5 rounded-lg border border-slate-800/60"
+                >
+                  <Globe className="w-3.5 h-3.5 text-slate-500" />
+                  Connection Settings
+                </button>
+              </div>
+
               <div className="mt-5 text-center border-t border-slate-850 pt-5">
                 <p className="text-xs text-slate-400 font-semibold">
                   {isRegisterMode ? 'Already have an account?' : "Don't have an account?"}{' '}
@@ -1400,6 +1459,89 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 </p>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Backend API Configuration Modal */}
+      <AnimatePresence>
+        {showBackendConfig && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBackendConfig(false)}
+              className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm cursor-pointer"
+            ></motion.div>
+
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl relative z-10"
+            >
+              <button 
+                onClick={() => setShowBackendConfig(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex flex-col items-center mb-6">
+                <div className="w-14 h-14 bg-red-600/10 border border-red-500/20 rounded-2xl flex items-center justify-center mb-3.5">
+                  <Globe className="w-7 h-7 text-red-500" />
+                </div>
+                <h3 className="text-xl font-bold tracking-tight text-white text-center">
+                  Backend API Connection
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 text-center">
+                  Connect your static front-end to your running Cloud Run or server backend.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                    Cloud Run / VPS Backend URL
+                  </label>
+                  <input
+                    type="url"
+                    value={backendUrl}
+                    onChange={(e) => setBackendUrlState(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500 transition-colors font-medium font-mono"
+                    placeholder="https://your-cloud-run-url.run.app"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
+                    Provide the URL of your deployed Cloud Run service. All login, register, and stream operator requests will be securely routed there.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setBackendUrl(backendUrl);
+                      setShowBackendConfig(false);
+                      window.location.reload(); // Reload to apply everywhere
+                    }}
+                    className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer text-center"
+                  >
+                    Save & Connect
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBackendUrlState('');
+                      setBackendUrl('');
+                      setShowBackendConfig(false);
+                      window.location.reload();
+                    }}
+                    className="px-4 py-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
