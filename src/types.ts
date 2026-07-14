@@ -1,6 +1,7 @@
 export interface User {
   id: number;
   username: string;
+  approved?: number; // 0 or 1 (for admin permissions)
 }
 
 export interface StreamKey {
@@ -71,6 +72,7 @@ export interface SystemStats {
 export interface AdminUser {
   id: number;
   username: string;
+  approved?: number; // 0 or 1
 }
 
 export interface LicenseKey {

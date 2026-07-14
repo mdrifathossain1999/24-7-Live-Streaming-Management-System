@@ -34,7 +34,20 @@ export async function safeFetchJson<T = any>(
     }
 
     if (!response.ok) {
-      const errMsg = (data && (data.error || data.message)) || `Request failed with status ${response.status}`;
+      let errMsg = `Request failed with status ${response.status}`;
+      if (data) {
+        if (typeof data.error === 'string') {
+          errMsg = data.error;
+        } else if (data.error && typeof data.error === 'object' && typeof data.error.message === 'string') {
+          errMsg = data.error.message;
+        } else if (typeof data.message === 'string') {
+          errMsg = data.message;
+        } else if (typeof data.error_description === 'string') {
+          errMsg = data.error_description;
+        } else if (data.error) {
+          errMsg = JSON.stringify(data.error);
+        }
+      }
       return { data, error: errMsg, ok: false, status: response.status };
     }
 

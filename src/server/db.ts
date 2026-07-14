@@ -31,7 +31,8 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
+        password TEXT NOT NULL,
+        approved INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS stream_keys (
@@ -107,6 +108,12 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
       // Ignore error if column already exists
     }
 
+    try {
+      await instance.run(`ALTER TABLE users ADD COLUMN approved INTEGER DEFAULT 0`);
+    } catch (err) {
+      // Ignore error if column already exists
+    }
+
     // Seed default license key if not exists
     const keyExists = await instance.get('SELECT * FROM license_keys LIMIT 1');
     if (!keyExists) {
@@ -116,12 +123,17 @@ export async function getDb(): Promise<Database<sqlite3.Database, sqlite3.Statem
       console.log('Seeded default license keys: STREAM-2026-LIVE, ADMIN-ACCESS-2026');
     }
 
-    // Seed default admin user if not exists
-    const adminExists = await instance.get('SELECT * FROM users WHERE username = ?', ['admin']);
-    if (!adminExists) {
-      const defaultHash = hashPassword('admin123');
-      await instance.run('INSERT INTO users (username, password) VALUES (?, ?)', ['admin', defaultHash]);
-      console.log('Seeded default admin user: admin / admin123');
+    // Delete existing default 'admin' user to clean up as requested
+    await instance.run('DELETE FROM users WHERE username = ?', ['admin']);
+
+    // Seed diamondvaiteam@gmail.com as a pre-approved user if not exists
+    const gmailAdminExists = await instance.get('SELECT * FROM users WHERE username = ?', ['diamondvaiteam@gmail.com']);
+    if (!gmailAdminExists) {
+      const defaultHash = hashPassword(crypto.randomBytes(16).toString('hex'));
+      await instance.run('INSERT INTO users (username, password, approved) VALUES (?, ?, ?)', ['diamondvaiteam@gmail.com', defaultHash, 1]);
+      console.log('Seeded diamondvaiteam@gmail.com as pre-approved user.');
+    } else {
+      await instance.run('UPDATE users SET approved = 1 WHERE username = ?', ['diamondvaiteam@gmail.com']);
     }
 
     // Seed default settings if not exists

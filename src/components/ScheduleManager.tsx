@@ -6,9 +6,10 @@ import ConfirmationModal from './ConfirmationModal';
 
 interface ScheduleProps {
   token: string;
+  isApproved?: boolean;
 }
 
-export default function ScheduleManager({ token }: ScheduleProps) {
+export default function ScheduleManager({ token, isApproved = true }: ScheduleProps) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [videos, setVideos] = useState<VideoFile[]>([]);
   const [keys, setKeys] = useState<StreamKey[]>([]);
@@ -235,7 +236,8 @@ export default function ScheduleManager({ token }: ScheduleProps) {
             <div className="md:col-span-3 flex justify-end pt-3 border-t border-slate-800/60">
               <button
                 type="submit"
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-xl text-sm transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-950/20"
+                disabled={!isApproved}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-800/40 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-950/20"
               >
                 <Calendar className="w-4 h-4" />
                 Schedule Broadcast Launch
@@ -288,8 +290,9 @@ export default function ScheduleManager({ token }: ScheduleProps) {
                   <div className="shrink-0 flex justify-end">
                     <button
                       onClick={() => handleDelete(sched.id)}
-                      className="p-2 border border-slate-800 hover:border-rose-950 hover:bg-rose-950/20 text-slate-400 hover:text-rose-400 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-                      title="Cancel Schedule"
+                      disabled={!isApproved}
+                      className="p-2 border border-slate-800 hover:border-rose-950 hover:bg-rose-950/20 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-rose-400 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                      title={!isApproved ? 'Action Denied' : 'Cancel Schedule'}
                     >
                       <Trash2 className="w-4 h-4" />
                       Cancel

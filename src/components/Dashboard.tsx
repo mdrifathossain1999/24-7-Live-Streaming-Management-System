@@ -6,9 +6,10 @@ import ConfirmationModal from './ConfirmationModal';
 
 interface DashboardProps {
   token: string;
+  isApproved?: boolean;
 }
 
-export default function Dashboard({ token }: DashboardProps) {
+export default function Dashboard({ token, isApproved = true }: DashboardProps) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [logs, setLogs] = useState<StreamLog[]>([]);
   const [keys, setKeys] = useState<StreamKey[]>([]);
@@ -353,8 +354,8 @@ export default function Dashboard({ token }: DashboardProps) {
             {!isStreaming ? (
               <button
                 onClick={handleStart}
-                disabled={actionLoading}
-                className="flex-1 py-3.5 bg-red-600 hover:bg-red-700 disabled:bg-red-800/40 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-950/10 cursor-pointer text-base"
+                disabled={actionLoading || !isApproved}
+                className="flex-1 py-3.5 bg-red-600 hover:bg-red-700 disabled:bg-red-850/30 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-950/10 cursor-pointer text-base"
               >
                 <Play className="w-5 h-5 fill-white" />
                 Start Live Broadcast
@@ -362,8 +363,8 @@ export default function Dashboard({ token }: DashboardProps) {
             ) : (
               <button
                 onClick={handleStop}
-                disabled={actionLoading}
-                className="flex-1 py-3.5 bg-slate-950 border border-slate-800 hover:bg-slate-800 disabled:bg-slate-900/50 text-rose-500 font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer text-base"
+                disabled={actionLoading || !isApproved}
+                className="flex-1 py-3.5 bg-slate-950 border border-slate-800 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-rose-500 font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer text-base"
               >
                 <Square className="w-5 h-5 fill-rose-500" />
                 Stop Live Broadcast
@@ -389,16 +390,16 @@ export default function Dashboard({ token }: DashboardProps) {
             <div className="grid grid-cols-2 gap-2.5 mb-5">
               <button
                 onClick={() => handleBulkStatusChange(true)}
-                disabled={bulkLoading || keys.length === 0}
-                className="py-2.5 px-3 bg-red-600/15 hover:bg-red-600/25 disabled:opacity-50 text-red-400 hover:text-red-300 font-semibold text-xs rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                disabled={bulkLoading || keys.length === 0 || !isApproved}
+                className="py-2.5 px-3 bg-red-600/15 hover:bg-red-600/25 disabled:opacity-40 disabled:cursor-not-allowed text-red-400 hover:text-red-300 font-semibold text-xs rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <CheckSquare className="w-4 h-4" />
                 Enable All
               </button>
               <button
                 onClick={() => handleBulkStatusChange(false)}
-                disabled={bulkLoading || keys.length === 0}
-                className="py-2.5 px-3 bg-slate-950 hover:bg-slate-850 disabled:opacity-50 text-slate-400 hover:text-white font-semibold text-xs rounded-xl border border-slate-850 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                disabled={bulkLoading || keys.length === 0 || !isApproved}
+                className="py-2.5 px-3 bg-slate-950 hover:bg-slate-850 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-white font-semibold text-xs rounded-xl border border-slate-850 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <SquareIcon className="w-4 h-4" />
                 Disable All
@@ -425,9 +426,10 @@ export default function Dashboard({ token }: DashboardProps) {
                     >
                       <div className="min-w-0 flex items-center gap-3">
                         <button
-                          onClick={() => handleToggleSingleKey(key)}
-                          className="text-slate-500 hover:text-white transition-colors cursor-pointer shrink-0"
-                          title={isEnabled ? 'Deactivate destination' : 'Activate destination'}
+                          onClick={() => isApproved && handleToggleSingleKey(key)}
+                          disabled={!isApproved}
+                          className={`text-slate-500 hover:text-white transition-colors shrink-0 ${!isApproved ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                          title={!isApproved ? 'Action Denied: Pending Approval' : (isEnabled ? 'Deactivate destination' : 'Activate destination')}
                         >
                           {isEnabled ? (
                             <ToggleRight className="w-7 h-7 text-red-500" />

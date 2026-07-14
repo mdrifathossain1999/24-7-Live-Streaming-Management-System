@@ -37,13 +37,31 @@ function authenticateToken(req: any, res: any, next: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+  jwt.verify(token, JWT_SECRET, async (err: any, decoded: any) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired session token' });
     }
-    req.user = user;
-    next();
+    try {
+      const db = await getDb();
+      const user = await db.get('SELECT id, username, approved FROM users WHERE id = ?', [decoded.id]);
+      if (!user) {
+        return res.status(403).json({ error: 'User account not found' });
+      }
+      req.user = user;
+      next();
+    } catch (dbErr) {
+      req.user = decoded;
+      next();
+    }
   });
+}
+
+function requireApproved(req: any, res: any, next: any) {
+  if (req.user && req.user.approved === 1) {
+    next();
+  } else {
+    res.status(403).json({ error: 'Action Denied: Your account is pending admin approval. You can only view the site.' });
+  }
 }
 
 // Multer setups
@@ -170,55 +188,79 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { username, password, licenseKey } = req.body;
-  if (!username || !password || !licenseKey) {
-    return res.status(400).json({ error: 'Username, password, and license key are required' });
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
   }
 
   try {
     const db = await getDb();
     
-    // Check if license key is valid and unused
-    const keyRecord = await db.get('SELECT * FROM license_keys WHERE key = ?', [licenseKey]);
-    if (!keyRecord) {
-      return res.status(400).json({ error: 'Invalid license key. Please check and try again.' });
-    }
-    if (keyRecord.usedBy) {
-      return res.status(400).json({ error: `License key has already been used by user "${keyRecord.usedBy}"` });
-    }
-
     const existingUser = await db.get('SELECT * FROM users WHERE username = ?', [username]);
     if (existingUser) {
       return res.status(400).json({ error: 'Username is already taken' });
     }
 
     const hashedPassword = hashPassword(password);
-    const result = await db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
-    const userId = result.lastID;
+    const result = await db.run('INSERT INTO users (username, password, approved) VALUES (?, ?, 0)', [username, hashedPassword]);
 
-    // Mark key as used
-    await db.run('UPDATE license_keys SET usedBy = ? WHERE id = ?', [username, keyRecord.id]);
-
-    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
-    await logEvent('success', `User "${username}" registered and logged in successfully using key "${licenseKey}"`);
-    res.status(201).json({ token, username });
+    await logEvent('warn', `Approval Request: New user account registered: "${username}". Awaiting administrator approval.`);
+    res.status(201).json({ message: 'Registration successful! Your account is pending admin approval.', username });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Gmail/Google OAuth Login & Registration Handler
+app.post('/api/auth/google', async (req, res) => {
+  const { email, uid, displayName } = req.body;
+  if (!email || !uid) {
+    return res.status(400).json({ error: 'Email and Google UID are required' });
+  }
+
+  try {
+    const db = await getDb();
+    let user = await db.get('SELECT * FROM users WHERE username = ?', [email]);
+
+    if (!user) {
+      // Auto-register Gmail user if they don't already have an account
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      const hashedPassword = hashPassword(randomPassword);
+      const result = await db.run('INSERT INTO users (username, password, approved) VALUES (?, ?, 0)', [email, hashedPassword]);
+      const userId = result.lastID;
+
+      user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
+      await logEvent('warn', `Approval Request: New user "${email}" (${displayName}) registered automatically via Google Auth. Awaiting administrator approval.`);
+    }
+
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+    await logEvent('success', `User "${email}" logged in successfully via Google Auth`);
+    res.json({ token, username: user.username });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/auth/me', authenticateToken, (req: any, res) => {
+  res.json({
+    id: req.user.id,
+    username: req.user.username,
+    approved: req.user.approved
+  });
 });
 
 // Admin User Directory and License Keys APIs
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     const db = await getDb();
-    const users = await db.all('SELECT id, username FROM users ORDER BY id ASC');
+    const users = await db.all('SELECT id, username, approved FROM users ORDER BY id ASC');
     res.json(users);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
+app.delete('/api/users/:id', authenticateToken, requireApproved, async (req: any, res) => {
   const { id } = req.params;
   try {
     const db = await getDb();
@@ -227,8 +269,8 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (userToDelete.username === 'admin') {
-      return res.status(400).json({ error: 'The primary system admin account cannot be deleted' });
+    if (userToDelete.username === 'admin' || userToDelete.username === 'diamondvaiteam@gmail.com') {
+      return res.status(400).json({ error: 'Super Admin accounts cannot be deleted' });
     }
 
     if (userToDelete.id === req.user.id) {
@@ -238,6 +280,33 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
     await db.run('DELETE FROM users WHERE id = ?', [id]);
     await logEvent('warn', `Deleted operator account: "${userToDelete.username}"`);
     res.json({ message: `User "${userToDelete.username}" deleted successfully` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users/:id/approve', authenticateToken, requireApproved, async (req: any, res) => {
+  const { id } = req.params;
+  const { approved } = req.body; // should be 0 or 1
+  if (approved !== 0 && approved !== 1) {
+    return res.status(400).json({ error: 'approved value must be 0 or 1' });
+  }
+
+  try {
+    const db = await getDb();
+    const targetUser = await db.get('SELECT * FROM users WHERE id = ?', [id]);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (targetUser.username === 'admin' || targetUser.username === 'diamondvaiteam@gmail.com') {
+      return res.status(400).json({ error: 'Super Admin approval status cannot be modified' });
+    }
+
+    await db.run('UPDATE users SET approved = ? WHERE id = ?', [approved, id]);
+    const action = approved === 1 ? 'approved' : 'disapproved';
+    await logEvent('info', `Admin changed user "${targetUser.username}" status to ${action}`);
+    res.json({ message: `User "${targetUser.username}" ${action} successfully` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -253,7 +322,7 @@ app.get('/api/license-keys', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/license-keys/generate', authenticateToken, async (req, res) => {
+app.post('/api/license-keys/generate', authenticateToken, requireApproved, async (req, res) => {
   try {
     const db = await getDb();
     // Generate a random-like pattern key
@@ -273,7 +342,7 @@ app.post('/api/license-keys/generate', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/auth/change-password', authenticateToken, async (req: any, res) => {
+app.post('/api/auth/change-password', authenticateToken, requireApproved, async (req: any, res) => {
   const { oldPassword, newPassword } = req.body;
   if (!oldPassword || !newPassword) {
     return res.status(400).json({ error: 'Old password and new password are required' });
@@ -305,7 +374,7 @@ app.get('/api/stream-keys', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/stream-keys', authenticateToken, async (req, res) => {
+app.post('/api/stream-keys', authenticateToken, requireApproved, async (req, res) => {
   const { platform, name, rtmpUrl, streamKey, enabled } = req.body;
   if (!platform || !name || !rtmpUrl || !streamKey) {
     return res.status(400).json({ error: 'All fields (platform, name, rtmpUrl, streamKey) are required' });
@@ -325,7 +394,7 @@ app.post('/api/stream-keys', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/stream-keys/bulk/status', authenticateToken, async (req, res) => {
+app.put('/api/stream-keys/bulk/status', authenticateToken, requireApproved, async (req, res) => {
   const { ids, enabled } = req.body;
   if (!Array.isArray(ids)) {
     return res.status(400).json({ error: 'ids must be an array of numbers' });
@@ -347,7 +416,7 @@ app.put('/api/stream-keys/bulk/status', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/stream-keys/:id', authenticateToken, async (req, res) => {
+app.put('/api/stream-keys/:id', authenticateToken, requireApproved, async (req, res) => {
   const { id } = req.params;
   const { platform, name, rtmpUrl, streamKey, enabled } = req.body;
 
@@ -369,7 +438,7 @@ app.put('/api/stream-keys/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/stream-keys/:id', authenticateToken, async (req, res) => {
+app.delete('/api/stream-keys/:id', authenticateToken, requireApproved, async (req, res) => {
   const { id } = req.params;
   try {
     const db = await getDb();
@@ -398,7 +467,7 @@ app.get('/api/playlist', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/playlist/upload', authenticateToken, uploadVideo.single('video'), async (req, res) => {
+app.post('/api/playlist/upload', authenticateToken, requireApproved, uploadVideo.single('video'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No video file provided' });
   }
@@ -428,7 +497,7 @@ app.post('/api/playlist/upload', authenticateToken, uploadVideo.single('video'),
   }
 });
 
-app.post('/api/playlist/upload-chunk', authenticateToken, uploadChunk.single('chunk'), async (req, res) => {
+app.post('/api/playlist/upload-chunk', authenticateToken, requireApproved, uploadChunk.single('chunk'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No chunk file provided' });
   }
@@ -522,7 +591,7 @@ app.post('/api/playlist/upload-chunk', authenticateToken, uploadChunk.single('ch
   }
 });
 
-app.post('/api/playlist/reorder', authenticateToken, async (req, res) => {
+app.post('/api/playlist/reorder', authenticateToken, requireApproved, async (req, res) => {
   const { orderedIds } = req.body; // array of IDs
   if (!Array.isArray(orderedIds)) {
     return res.status(400).json({ error: 'orderedIds must be an array of video IDs' });
@@ -540,7 +609,7 @@ app.post('/api/playlist/reorder', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/playlist/:id', authenticateToken, async (req, res) => {
+app.delete('/api/playlist/:id', authenticateToken, requireApproved, async (req, res) => {
   const { id } = req.params;
   try {
     const db = await getDb();
@@ -566,7 +635,7 @@ app.get('/api/stream/status', authenticateToken, (req, res) => {
   res.json(StreamManager.getInstance().getStats());
 });
 
-app.post('/api/stream/start', authenticateToken, async (req, res) => {
+app.post('/api/stream/start', authenticateToken, requireApproved, async (req, res) => {
   try {
     await StreamManager.getInstance().startStreaming();
     res.json({ message: 'Streaming started successfully' });
@@ -575,7 +644,7 @@ app.post('/api/stream/start', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/stream/stop', authenticateToken, (req, res) => {
+app.post('/api/stream/stop', authenticateToken, requireApproved, (req, res) => {
   try {
     StreamManager.getInstance().stopStreaming();
     res.json({ message: 'Streaming stopped successfully' });
@@ -595,7 +664,7 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/settings', authenticateToken, async (req, res) => {
+app.post('/api/settings', authenticateToken, requireApproved, async (req, res) => {
   const {
     loopPlaylist, logoPosition, textOverlay, textPosition, textColor, textSize, resolution, videoBitrate, audioBitrate, aspectRatio, scaleMode
   } = req.body;
@@ -618,7 +687,7 @@ app.post('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/settings/logo', authenticateToken, uploadLogo.single('logo'), async (req, res) => {
+app.post('/api/settings/logo', authenticateToken, requireApproved, uploadLogo.single('logo'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No logo file provided' });
   }
@@ -644,7 +713,7 @@ app.post('/api/settings/logo', authenticateToken, uploadLogo.single('logo'), asy
   }
 });
 
-app.delete('/api/settings/logo', authenticateToken, async (req, res) => {
+app.delete('/api/settings/logo', authenticateToken, requireApproved, async (req, res) => {
   try {
     const db = await getDb();
     const settings = await db.get<StreamSettings>('SELECT * FROM settings LIMIT 1');
@@ -674,7 +743,7 @@ app.get('/api/schedules', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/schedules', authenticateToken, async (req, res) => {
+app.post('/api/schedules', authenticateToken, requireApproved, async (req, res) => {
   const { videoId, streamKeyId, scheduledTime } = req.body;
   if (!videoId || !streamKeyId || !scheduledTime) {
     return res.status(400).json({ error: 'All fields (videoId, streamKeyId, scheduledTime) are required' });
@@ -701,7 +770,7 @@ app.post('/api/schedules', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/schedules/:id', authenticateToken, async (req, res) => {
+app.delete('/api/schedules/:id', authenticateToken, requireApproved, async (req, res) => {
   const { id } = req.params;
   try {
     const db = await getDb();

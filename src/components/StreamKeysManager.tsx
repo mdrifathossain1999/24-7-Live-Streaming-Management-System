@@ -6,6 +6,7 @@ import ConfirmationModal from './ConfirmationModal';
 
 interface StreamKeysProps {
   token: string;
+  isApproved?: boolean;
 }
 
 const defaultRtmps = {
@@ -14,7 +15,7 @@ const defaultRtmps = {
   custom: ''
 };
 
-export default function StreamKeysManager({ token }: StreamKeysProps) {
+export default function StreamKeysManager({ token, isApproved = true }: StreamKeysProps) {
   const [keys, setKeys] = useState<StreamKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -279,7 +280,8 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
               )}
               <button
                 type="submit"
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-xl text-sm transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-950/20"
+                disabled={!isApproved}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800/40 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-950/20"
               >
                 <Save className="w-4 h-4" />
                 {editingId ? 'Update Configuration' : 'Save Destination'}
@@ -351,11 +353,12 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
 
                 <div className="flex items-center gap-4 shrink-0 justify-end">
                   {/* Enabled Toggle Switch */}
-                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <label className={`relative inline-flex items-center select-none ${!isApproved ? 'cursor-not-allowed opacity-55' : 'cursor-pointer'}`}>
                     <input
                       type="checkbox"
                       checked={keyItem.enabled === 1}
-                      onChange={() => handleToggleEnable(keyItem)}
+                      disabled={!isApproved}
+                      onChange={() => isApproved && handleToggleEnable(keyItem)}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-slate-950 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600 peer-checked:after:bg-white peer-checked:after:border-white"></div>
@@ -364,15 +367,17 @@ export default function StreamKeysManager({ token }: StreamKeysProps) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleEdit(keyItem)}
-                      className="p-2 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/40 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                      title="Edit Destination"
+                      disabled={!isApproved}
+                      className="p-2 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/40 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                      title={!isApproved ? 'Action Denied' : 'Edit Destination'}
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(keyItem.id)}
-                      className="p-2 border border-slate-800 hover:border-rose-950 hover:bg-rose-950/20 text-slate-400 hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                      title="Delete Destination"
+                      disabled={!isApproved}
+                      className="p-2 border border-slate-800 hover:border-rose-950 hover:bg-rose-950/20 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                      title={!isApproved ? 'Action Denied' : 'Delete Destination'}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

@@ -6,9 +6,10 @@ import ConfirmationModal from './ConfirmationModal';
 
 interface PlaylistProps {
   token: string;
+  isApproved?: boolean;
 }
 
-export default function PlaylistManager({ token }: PlaylistProps) {
+export default function PlaylistManager({ token, isApproved = true }: PlaylistProps) {
   const [playlist, setPlaylist] = useState<VideoFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -235,23 +236,26 @@ export default function PlaylistManager({ token }: PlaylistProps) {
       {/* Upload Zone */}
       <div
         className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
-          dragActive
+          !isApproved
+            ? 'border-slate-900 bg-slate-950/20 opacity-50 cursor-not-allowed'
+            : dragActive
             ? 'border-red-500 bg-red-500/5'
             : 'border-slate-800 bg-slate-900 hover:border-slate-700'
         }`}
-        onDragEnter={handleDrag}
-        onDragOver={handleDrag}
-        onDragLeave={handleDrag}
-        onDrop={handleDrop}
+        onDragEnter={isApproved ? handleDrag : undefined}
+        onDragOver={isApproved ? handleDrag : undefined}
+        onDragLeave={isApproved ? handleDrag : undefined}
+        onDrop={isApproved ? handleDrop : undefined}
       >
         <input
           type="file"
           id="video-upload"
           className="hidden"
           accept="video/*"
+          disabled={!isApproved}
           onChange={handleFileChange}
         />
-        <label htmlFor="video-upload" className="cursor-pointer flex flex-col items-center gap-3">
+        <label htmlFor={isApproved ? "video-upload" : undefined} className={isApproved ? "cursor-pointer flex flex-col items-center gap-3" : "cursor-not-allowed flex flex-col items-center gap-3"}>
           <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-400">
             {uploading ? (
               <span className="inline-block w-6 h-6 border-2 border-slate-700 border-t-red-500 rounded-full animate-spin"></span>
@@ -275,7 +279,8 @@ export default function PlaylistManager({ token }: PlaylistProps) {
               </div>
             ) : (
               <p className="text-xs text-slate-500 mt-1">
-                Drag & drop your files here, or <span className="text-red-500 font-medium">browse local files</span>
+                {!isApproved ? 'View-Only Mode: Uploading new assets is disabled.' : 'Drag & drop your files here, or '}
+                {isApproved && <span className="text-red-500 font-medium">browse local files</span>}
               </p>
             )}
           </div>
@@ -329,17 +334,17 @@ export default function PlaylistManager({ token }: PlaylistProps) {
                   <div className="flex items-center border border-slate-800/80 rounded-lg p-0.5 bg-slate-950">
                     <button
                       onClick={() => handleMove(index, 'up')}
-                      disabled={index === 0}
-                      className="p-1.5 hover:text-white text-slate-500 disabled:text-slate-800 hover:bg-slate-900 rounded transition-colors disabled:hover:bg-transparent cursor-pointer"
-                      title="Move Up"
+                      disabled={index === 0 || !isApproved}
+                      className="p-1.5 hover:text-white text-slate-500 disabled:text-slate-800 hover:bg-slate-900 rounded transition-colors disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                      title={!isApproved ? 'Action Denied: Pending Approval' : 'Move Up'}
                     >
                       <ArrowUp className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleMove(index, 'down')}
-                      disabled={index === playlist.length - 1}
-                      className="p-1.5 hover:text-white text-slate-500 disabled:text-slate-800 hover:bg-slate-900 rounded transition-colors disabled:hover:bg-transparent cursor-pointer"
-                      title="Move Down"
+                      disabled={index === playlist.length - 1 || !isApproved}
+                      className="p-1.5 hover:text-white text-slate-500 disabled:text-slate-800 hover:bg-slate-900 rounded transition-colors disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                      title={!isApproved ? 'Action Denied: Pending Approval' : 'Move Down'}
                     >
                       <ArrowDown className="w-4 h-4" />
                     </button>
@@ -348,8 +353,9 @@ export default function PlaylistManager({ token }: PlaylistProps) {
                   {/* Delete */}
                   <button
                     onClick={() => handleDelete(video.id)}
-                    className="p-2 border border-slate-800 hover:border-rose-900/30 hover:bg-rose-950/20 text-slate-400 hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                    title="Remove Video"
+                    disabled={!isApproved}
+                    className="p-2 border border-slate-800 hover:border-rose-900/30 hover:bg-rose-950/20 text-slate-400 hover:text-rose-400 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={!isApproved ? 'Action Denied: Pending Approval' : 'Remove Video'}
                   >
                     <Trash2 className="w-4.5 h-4.5" />
                   </button>
