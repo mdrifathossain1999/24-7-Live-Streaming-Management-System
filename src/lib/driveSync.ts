@@ -1,6 +1,13 @@
 import { safeFetchJson } from '../utils';
 import { StreamSettings, StreamKey, Schedule } from '../types';
 
+export class GoogleDriveAuthError extends Error {
+  constructor(message: string = 'Google Drive access token is invalid or expired.') {
+    super(message);
+    this.name = 'GoogleDriveAuthError';
+  }
+}
+
 export interface BackupData {
   settings: Partial<StreamSettings> | null;
   streamKeys: Omit<StreamKey, 'id'>[];
@@ -9,6 +16,23 @@ export interface BackupData {
 }
 
 const BACKUP_FILENAME = 'streammanager_247_backup.json';
+
+function isAuthFailure(res: { ok: boolean; status?: number; error?: string | null }) {
+  if (res.status === 401 || res.status === 403) return true;
+  if (res.error && typeof res.error === 'string') {
+    const errLower = res.error.toLowerCase();
+    if (
+      errLower.includes('invalid authentication credentials') ||
+      errLower.includes('oauth 2') ||
+      errLower.includes('invalid credentials') ||
+      errLower.includes('unauthenticated') ||
+      errLower.includes('token expired')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Find backup file on user's Google Drive
 export async function findBackupFile(accessToken: string): Promise<string | null> {
@@ -19,7 +43,14 @@ export async function findBackupFile(accessToken: string): Promise<string | null
     headers: { Authorization: `Bearer ${accessToken}` }
   });
 
-  if (res.ok && res.data && res.data.files && res.data.files.length > 0) {
+  if (!res.ok) {
+    if (isAuthFailure(res)) {
+      throw new GoogleDriveAuthError(res.error || 'Google Drive authentication failed or token expired.');
+    }
+    return null;
+  }
+
+  if (res.data && res.data.files && res.data.files.length > 0) {
     return res.data.files[0].id;
   }
   return null;
@@ -43,6 +74,11 @@ export async function createBackupFile(accessToken: string): Promise<string> {
   if (res.ok && res.data && res.data.id) {
     return res.data.id;
   }
+
+  if (isAuthFailure(res)) {
+    throw new GoogleDriveAuthError(res.error || 'Google Drive authentication failed or token expired.');
+  }
+
   throw new Error(res.error || 'Failed to create backup file in Google Drive');
 }
 
@@ -56,6 +92,11 @@ export async function getBackupContent(accessToken: string, fileId: string): Pro
   if (res.ok && res.data) {
     return res.data;
   }
+
+  if (isAuthFailure(res)) {
+    throw new GoogleDriveAuthError(res.error || 'Google Drive authentication failed or token expired.');
+  }
+
   return null;
 }
 
@@ -70,6 +111,12 @@ export async function updateBackupContent(accessToken: string, fileId: string, d
     },
     body: JSON.stringify(data)
   });
+
+  if (!res.ok) {
+    if (isAuthFailure(res)) {
+      throw new GoogleDriveAuthError(res.error || 'Google Drive authentication failed or token expired.');
+    }
+  }
 
   return res.ok;
 }

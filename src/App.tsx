@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { LayoutDashboard, Film, Key, Calendar, Settings, LogOut, Radio, Cloud, AlertTriangle, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, Film, Key, Calendar, Settings, LogOut, Radio, Cloud, AlertTriangle, ExternalLink, RefreshCw } from 'lucide-react';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from './firebase';
 
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -15,7 +17,8 @@ import {
   getBackupContent,
   updateBackupContent,
   fetchLocalData,
-  restoreLocalData
+  restoreLocalData,
+  GoogleDriveAuthError
 } from './lib/driveSync';
 
 function parseErrorMessage(message: string) {
@@ -180,16 +183,61 @@ export default function App() {
                 setSyncMessage('Failed to auto-save');
               }
             }
-          } catch (loopErr) {
-            console.error('Auto-sync loop error:', loopErr);
+          } catch (loopErr: any) {
+            const isAuthErr = loopErr instanceof GoogleDriveAuthError ||
+              loopErr?.name === 'GoogleDriveAuthError' ||
+              (typeof loopErr === 'object' && loopErr !== null && (
+                (loopErr.message && (
+                  loopErr.message.includes('invalid authentication credentials') ||
+                  loopErr.message.includes('OAuth 2') ||
+                  loopErr.message.includes('UNAUTHENTICATED')
+                )) ||
+                (loopErr.error && (
+                  loopErr.error.includes('invalid authentication credentials') ||
+                  loopErr.error.includes('OAuth 2') ||
+                  loopErr.error.includes('UNAUTHENTICATED')
+                ))
+              ));
+
+            if (isAuthErr) {
+              console.warn('Google Drive token expired during auto-sync loop. Clearing stale token.');
+              localStorage.removeItem('google_drive_access_token');
+              setSyncStatus('error');
+              setSyncMessage('Google Drive session expired. Click Reconnect to sign in.');
+              if (syncInterval) clearInterval(syncInterval);
+            } else {
+              console.error('Auto-sync loop error:', loopErr);
+            }
           }
         }, 12000); // Check every 12 seconds
 
       } catch (err: any) {
-        const errorDetails = err instanceof Error ? err.message : (typeof err === 'object' ? JSON.stringify(err) : String(err));
-        console.error('Google Drive sync initialization error:', err, errorDetails);
-        setSyncStatus('error');
-        setSyncMessage(`Drive Sync error: ${errorDetails}`);
+        const isAuthErr = err instanceof GoogleDriveAuthError ||
+          err?.name === 'GoogleDriveAuthError' ||
+          (typeof err === 'object' && err !== null && (
+            (err.message && (
+              err.message.includes('invalid authentication credentials') ||
+              err.message.includes('OAuth 2') ||
+              err.message.includes('UNAUTHENTICATED')
+            )) ||
+            (err.error && (
+              err.error.includes('invalid authentication credentials') ||
+              err.error.includes('OAuth 2') ||
+              err.error.includes('UNAUTHENTICATED')
+            ))
+          ));
+
+        if (isAuthErr) {
+          console.warn('Google Drive access token expired or invalid. Clearing stale token.');
+          localStorage.removeItem('google_drive_access_token');
+          setSyncStatus('error');
+          setSyncMessage('Google Drive session expired. Click Reconnect to sign in.');
+        } else {
+          const errorDetails = err instanceof Error ? err.message : (typeof err === 'object' ? JSON.stringify(err) : String(err));
+          console.error('Google Drive sync initialization error:', err, errorDetails);
+          setSyncStatus('error');
+          setSyncMessage(`Drive Sync error: ${errorDetails}`);
+        }
       }
     };
 
@@ -200,6 +248,38 @@ export default function App() {
       if (syncInterval) clearInterval(syncInterval);
     };
   }, [token]);
+
+  const [isReconnectingDrive, setIsReconnectingDrive] = useState(false);
+
+  const handleReconnectGoogleDrive = async () => {
+    setIsReconnectingDrive(true);
+    try {
+      setSyncStatus('checking');
+      setSyncMessage('Connecting Google Drive...');
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential && credential.accessToken) {
+        localStorage.setItem('google_drive_access_token', credential.accessToken);
+      }
+      if (result.user?.email) {
+        localStorage.setItem('google_user_email', result.user.email);
+        setDriveEmail(result.user.email);
+      }
+      setSyncStatus('idle');
+      setSyncMessage('Google Drive reconnected successfully');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    } catch (err: any) {
+      console.error('Drive reconnect failed:', err);
+      setSyncStatus('error');
+      setSyncMessage(`Re-connect failed: ${err.message || 'Cancelled'}`);
+    } finally {
+      setIsReconnectingDrive(false);
+    }
+  };
 
   const handleLoginSuccess = (userToken: string, userNm: string) => {
     localStorage.setItem('streaming_token', userToken);
@@ -294,8 +374,13 @@ export default function App() {
 
         <div>
           {/* Google Drive Auto-Sync Status HUD */}
-          {localStorage.getItem('google_drive_access_token') && (() => {
+          {(localStorage.getItem('google_drive_access_token') || driveEmail || syncStatus === 'error') && (() => {
             const parsed = parseErrorMessage(syncMessage);
+            const isAuthError = !localStorage.getItem('google_drive_access_token') ||
+              syncMessage.toLowerCase().includes('expired') ||
+              syncMessage.toLowerCase().includes('re-connect') ||
+              syncMessage.toLowerCase().includes('credential') ||
+              syncMessage.toLowerCase().includes('oauth');
             return (
               <div className={`mx-4 mb-3 p-3 border rounded-xl flex flex-col gap-2 transition-all duration-200 ${
                 syncStatus === 'error'
@@ -322,10 +407,10 @@ export default function App() {
                     </p>
 
                     {syncStatus === 'error' ? (
-                      <div className="mt-1.5 text-xs text-rose-200 leading-normal font-medium">
+                      <div className="mt-1.5 text-xs text-rose-200 leading-normal font-medium space-y-2">
                         {parsed.hasUrl ? (
                           <>
-                            <p className="mb-2.5 text-[11px] text-rose-200/90 leading-relaxed">
+                            <p className="text-[11px] text-rose-200/90 leading-relaxed">
                               {parsed.textBefore.trim()}
                             </p>
                             <a
@@ -338,13 +423,24 @@ export default function App() {
                               Enable Drive API
                             </a>
                             {parsed.textAfter && (
-                              <p className="mt-2 text-[10px] text-rose-300/70 leading-normal">
+                              <p className="text-[10px] text-rose-300/70 leading-normal">
                                 {parsed.textAfter.trim()}
                               </p>
                             )}
                           </>
                         ) : (
                           <p className="text-[11px] leading-relaxed">{syncMessage}</p>
+                        )}
+
+                        {isAuthError && (
+                          <button
+                            onClick={handleReconnectGoogleDrive}
+                            disabled={isReconnectingDrive}
+                            className="inline-flex items-center justify-center gap-1.5 w-full px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[10px] uppercase tracking-wide transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isReconnectingDrive ? 'animate-spin' : ''}`} />
+                            Reconnect Google Drive
+                          </button>
                         )}
                       </div>
                     ) : (
